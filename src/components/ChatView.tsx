@@ -105,6 +105,52 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const workdirName = () => {
+    const path = activeSession()?.workdir;
+    if (!path) return "Папка";
+    const parts = path.split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] ?? "Папка";
+  };
+
+  const chooseWorkdir = async () => {
+    const id = activeId();
+    if (!id) {
+      setError("Сначала создайте сессию");
+      return;
+    }
+    let path: string | null = null;
+    try {
+      path = await api.pickFolder();
+    } catch {
+      path = null;
+    }
+    if (!path) {
+      const manual = window.prompt(
+        "Путь к рабочей папке проекта (создастся, если её нет):",
+        activeSession()?.workdir ?? "",
+      );
+      if (!manual || !manual.trim()) return;
+      path = manual.trim();
+    }
+    try {
+      const session = await api.sessionSetWorkdir(id, path, true);
+      setSessions((prev) => prev.map((s) => (s.id === session.id ? session : s)));
+      setNotice(`Рабочая папка: ${session.workdir}`);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const openWorkdir = async () => {
+    const path = activeSession()?.workdir;
+    if (!path) return;
+    try {
+      await api.openPath(path);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const toggleWeb = async () => {
     try {
       const config = await api.webConfigSet({ enabled: !webEnabled() });
@@ -463,6 +509,18 @@ export default function ChatView(props: Props) {
           >
             🌐 {webEnabled() ? "онлайн" : "офлайн"}
           </button>
+          <button
+            class="btn small"
+            title={activeSession()?.workdir ?? "Выбрать рабочую папку проекта"}
+            onClick={chooseWorkdir}
+          >
+            📁 {workdirName()}
+          </button>
+          <Show when={activeSession()?.workdir}>
+            <button class="icon-btn" title="Открыть рабочую папку" onClick={openWorkdir}>
+              ↗
+            </button>
+          </Show>
           <span class="muted small">
             {activeSession() ? activeSession()!.title : "Сессия не выбрана"}
           </span>

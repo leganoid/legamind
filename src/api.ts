@@ -109,6 +109,11 @@ export const api = {
   webFetchPage: (url: string) => invoke<string>("web_fetch_page", { url }),
   sourcesList: (sessionId: string) => invoke<SourceRow[]>("sources_list", { sessionId }),
 
+  pickFolder: () => invoke<string | null>("pick_folder"),
+  sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>
+    invoke<Session>("session_set_workdir", { sessionId, path, create }),
+  openPath: (path: string) => invoke<void>("open_path", { path }),
+
   providersList: () => invoke<ProviderView[]>("providers_list"),
   providerSave: (input: ProviderInput) => invoke<ProviderView>("provider_save", { input }),
   providerCheck: (input: ProviderInput) => invoke<CheckResult>("provider_check", { input }),

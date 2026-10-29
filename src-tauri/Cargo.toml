@@ -31,6 +31,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio-stream = "0.1"
 keyring = { version = "3", features = ["windows-native"] }
 base64 = "0.22"
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["dpapi", "wincrypt", "minwindef", "winbase"] }

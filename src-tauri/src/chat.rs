@@ -624,6 +624,8 @@ pub fn help_text() -> String {
         "/skills — список навыков",
         "/skill <название> — включить/выключить навык",
         "/export — выгрузить переписку в .md",
+        "/pwd — рабочая папка проекта",
+        "/workdir <путь> — задать рабочую папку (создаст файлы проекта)",
         "/web <запрос> — поиск в интернете, /web on|off — вкл/выкл",
         "",
         "Без слэша: «запомни: …» тоже сохраняет факт.",
@@ -752,6 +754,9 @@ fn export_session(
         return Err("В сессии нет сообщений".into());
     }
     let mut md = format!("# Чат «{}»\n\n_{}_\n\n", session.title, session.created_at);
+    if let Some(workdir) = session.workdir.as_deref() {
+        md.push_str(&format!("_Рабочая папка: `{workdir}`_\n\n"));
+    }
     for message in &history {
         let who = if message.role == "user" {
             "Вы".to_string()
@@ -765,11 +770,43 @@ fn export_session(
         };
         md.push_str(&format!("## {who}\n\n{}\n\n", message.content));
     }
-    let dir = data_dir.join("exports");
+    let dir = match session.workdir.as_deref() {
+        Some(workdir) => std::path::PathBuf::from(workdir).join("exports"),
+        None => data_dir.join("exports"),
+    };
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("chat-{session_id}.md"));
     std::fs::write(&path, md).map_err(|e| e.to_string())?;
     notice(format!("Экспортировано: {}", path.display()))
+}
+
+/// `/pwd` и `/workdir <path>` — рабочая папка проекта сессии.
+fn workdir_command(
+    db: &crate::db::Db,
+    session_id: &str,
+    action: &str,
+    args: &str,
+) -> Result<CommandResult, String> {
+    let session = db
+        .session_get(session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Сессия не найдена".to_string())?;
+
+    if action == "pwd" || args.trim().is_empty() {
+        return match session.workdir.as_deref() {
+            Some(path) => notice(format!("Рабочая папка: {path}")),
+            None => notice("Рабочая папка не задана. Укажите: /workdir C:\\Projects\\my-project"),
+        };
+    }
+
+    let dir = crate::workspace::prepare_workdir(args, true).map_err(|e| e.to_string())?;
+    crate::workspace::init_project(&dir, &session).map_err(|e| e.to_string())?;
+    db.session_set_workdir(session_id, Some(&dir.to_string_lossy()))
+        .map_err(|e| e.to_string())?;
+    notice(format!(
+        "Рабочая папка: {}\nСозданы exports/, datasets/, notes.md и .legamind/",
+        dir.display()
+    ))
 }
 
 /// Команды, которым не нужна модель: help/clear/remember/skills/skill/export.
@@ -834,6 +871,8 @@ pub fn local_command(
             ))?))
         }
         "export" => Ok(Some(export_session(db, data_dir, session_id)?)),
+        "pwd" => Ok(Some(workdir_command(db, session_id, "pwd", "")?)),
+        "workdir" => Ok(Some(workdir_command(db, session_id, "workdir", args)?)),
         _ => Ok(None),
     }
 }

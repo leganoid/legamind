@@ -246,11 +246,6 @@ async fn auto_search(state: &AppState, query: &str, limit: usize) -> Result<Vec<
             Err(err) => errors.push(format!("searxng: {err}")),
         }
     }
-    match search_yahoo(state, query, limit).await {
-        Ok(results) if !results.is_empty() => return Ok(results),
-        Ok(_) => errors.push("yahoo: пусто".into()),
-        Err(err) => errors.push(format!("yahoo: {err}")),
-    }
     match search_wikipedia(state, query, limit).await {
         Ok(results) if !results.is_empty() => return Ok(results),
         Ok(_) => errors.push("wikipedia: пусто".into()),
@@ -265,6 +260,12 @@ async fn auto_search(state: &AppState, query: &str, limit: usize) -> Result<Vec<
         Ok(results) if !results.is_empty() => return Ok(results),
         Ok(_) => errors.push("github: пусто".into()),
         Err(err) => errors.push(format!("github: {err}")),
+    }
+    // Yahoo — только как последний резерв: выдача нестабильна и может блокироваться.
+    match search_yahoo(state, query, limit).await {
+        Ok(results) if !results.is_empty() => return Ok(results),
+        Ok(_) => errors.push("yahoo: пусто".into()),
+        Err(err) => errors.push(format!("yahoo: {err}")),
     }
     Err(anyhow!(
         "Поиск не дал результатов. Добавьте ключ Tavily/Brave или свой SearxNG в настройках. Попытки: {}",

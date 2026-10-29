@@ -6,6 +6,7 @@ export interface Session {
   model_id: string;
   created_at: string;
   updated_at: string;
+  workdir: string | null;
 }
 
 export interface ChatMessageRow {

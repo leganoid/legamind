@@ -114,14 +114,14 @@ export default function SettingsView() {
             <label>
               Провайдер поиска
               <select value={provider()} onChange={(e) => setProvider(e.currentTarget.value)}>
-                <option value="yahoo">Yahoo (без ключа)</option>
-                <option value="auto">Авто: ключ → SearxNG → Yahoo → Wikipedia → SO → GitHub</option>
+                <option value="auto">Авто: ключ → SearxNG → Wikipedia → SO → GitHub → Yahoo</option>
                 <option value="wikipedia">Wikipedia (без ключа)</option>
                 <option value="stackexchange">Stack Exchange (без ключа)</option>
                 <option value="github">GitHub (без ключа)</option>
                 <option value="searxng">SearxNG (свой инстанс)</option>
                 <option value="tavily">Tavily (API-ключ)</option>
                 <option value="brave">Brave Search (API-ключ)</option>
+                <option value="yahoo">Yahoo (последний резерв)</option>
                 <option value="bing">Bing (best effort)</option>
                 <option value="ddg">DuckDuckGo (best effort)</option>
               </select>

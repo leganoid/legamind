@@ -27,6 +27,8 @@ pub struct Session {
     pub model_id: String,
     pub created_at: String,
     pub updated_at: String,
+    /// Рабочая папка проекта сессии (может быть не задана).
+    pub workdir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -412,6 +414,14 @@ impl Db {
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (4)", [])?;
         }
+
+        if current < 5 {
+            // Рабочая папка проекта для каждой сессии.
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN workdir TEXT;",
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (5)", [])?;
+        }
         Ok(())
     }
 
@@ -419,7 +429,7 @@ impl Db {
     pub fn sessions_list(&self) -> Result<Vec<Session>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, model_id, created_at, updated_at FROM sessions ORDER BY updated_at DESC",
+            "SELECT id, title, model_id, created_at, updated_at, workdir FROM sessions ORDER BY updated_at DESC",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -429,6 +439,7 @@ impl Db {
                     model_id: row.get(2)?,
                     created_at: row.get(3)?,
                     updated_at: row.get(4)?,
+                    workdir: row.get(5)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -439,7 +450,7 @@ impl Db {
         let conn = self.conn();
         Ok(conn
             .query_row(
-                "SELECT id, title, model_id, created_at, updated_at FROM sessions WHERE id = ?1",
+                "SELECT id, title, model_id, created_at, updated_at, workdir FROM sessions WHERE id = ?1",
                 params![id],
                 |row| {
                     Ok(Session {
@@ -448,6 +459,7 @@ impl Db {
                         model_id: row.get(2)?,
                         created_at: row.get(3)?,
                         updated_at: row.get(4)?,
+                        workdir: row.get(5)?,
                     })
                 },
             )
@@ -461,6 +473,7 @@ impl Db {
             model_id: model_id.to_string(),
             created_at: now(),
             updated_at: now(),
+            workdir: None,
         };
         let conn = self.conn();
         conn.execute(
@@ -468,6 +481,15 @@ impl Db {
             params![session.id, session.title, session.model_id, session.created_at, session.updated_at],
         )?;
         Ok(session)
+    }
+
+    pub fn session_set_workdir(&self, id: &str, workdir: Option<&str>) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE sessions SET workdir = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, workdir, now()],
+        )?;
+        Ok(())
     }
 
     pub fn session_rename(&self, id: &str, title: &str) -> Result<()> {

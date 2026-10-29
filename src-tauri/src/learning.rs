@@ -162,7 +162,14 @@ pub async fn dataset_generate(
         return Err("Выберите модель-учителя".into());
     }
 
-    let dir = state.data_dir.join("datasets");
+    // Датасет из сессии пишем в её рабочую папку, если она задана.
+    let dir = req
+        .session_id
+        .as_deref()
+        .and_then(|sid| state.db.session_get(sid).ok().flatten())
+        .and_then(|session| session.workdir)
+        .map(|workdir| std::path::PathBuf::from(workdir).join("datasets"))
+        .unwrap_or_else(|| state.data_dir.join("datasets"));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let dataset_id = new_id();
     let path = dir.join(format!("{}-{}.jsonl", slugify(name), &dataset_id[..8]));

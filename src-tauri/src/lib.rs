@@ -12,6 +12,7 @@ pub mod secrets;
 pub mod sidecar;
 pub mod skills;
 pub mod web;
+pub mod workspace;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -256,6 +257,9 @@ pub fn run() {
             chat::context_usage,
             chat::chat_command,
             chat::sources_list,
+            workspace::pick_folder,
+            workspace::session_set_workdir,
+            workspace::open_path,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,
