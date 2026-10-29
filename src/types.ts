@@ -201,6 +201,52 @@ export interface CommandResult {
   message: ChatMessageRow | null;
 }
 
+export interface LessonRow {
+  id: string;
+  text: string;
+  source: string | null;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface FeedbackRow {
+  id: string;
+  message_id: string;
+  session_id: string;
+  rating: number;
+  note: string | null;
+  created_at: string;
+}
+
+export interface DatasetRow {
+  id: string;
+  name: string;
+  path: string;
+  teacher_model: string | null;
+  examples: number;
+  created_at: string;
+}
+
+export interface DatasetProgress {
+  dataset_id: string;
+  phase: "generating" | "done" | "error" | string;
+  done: number;
+  total: number;
+  examples: number;
+  error: string | null;
+}
+
+export interface FinetuneStatus {
+  python: string;
+  packages: Record<string, boolean>;
+  missing: string[];
+  device: string;
+  hf_models: string[];
+  model_root: string;
+  ready: boolean;
+  note: string;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

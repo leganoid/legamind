@@ -4,6 +4,7 @@ pub mod chat;
 pub mod db;
 pub mod debate;
 pub mod logging;
+pub mod learning;
 pub mod memory;
 pub mod models;
 pub mod providers;
@@ -257,6 +258,16 @@ pub fn run() {
             skills::skill_save,
             skills::skill_delete,
             skills::skill_set_enabled,
+            learning::lessons_list,
+            learning::lesson_add,
+            learning::lesson_delete,
+            learning::lesson_set_enabled,
+            learning::feedback_set,
+            learning::datasets_list,
+            learning::dataset_generate,
+            learning::dataset_delete,
+            learning::finetune_status,
+            learning::learning_models,
             models_load,
             models_unload,
             engine_restart,

@@ -99,12 +99,20 @@ fn extract_memory_command(text: &str) -> Option<String> {
     None
 }
 
-fn system_prompt(memory_block: Option<String>, skills_block: Option<String>) -> String {
+fn system_prompt(
+    memory_block: Option<String>,
+    skills_block: Option<String>,
+    lessons_block: Option<String>,
+) -> String {
     let mut system =
         String::from("Ты — Legamind, локальный ассистент для разработки и инженерии. Отвечай по-русски, по делу.");
     if let Some(skills) = skills_block {
         system.push_str("\n\n");
         system.push_str(&skills);
+    }
+    if let Some(lessons) = lessons_block {
+        system.push_str("\n\n");
+        system.push_str(&lessons);
     }
     if let Some(block) = memory_block {
         system.push_str("\n\n");
@@ -157,10 +165,11 @@ async fn build_budgeted_messages(
     history: &[ChatMessageRow],
     memory_block: Option<String>,
     skills_block: Option<String>,
+    lessons_block: Option<String>,
     reserve: u32,
 ) -> Result<(Vec<ChatMessage>, ContextUsage)> {
     let limit = context_limit(state, model_id);
-    let system = system_prompt(memory_block, skills_block);
+    let system = system_prompt(memory_block, skills_block, lessons_block);
 
     let dialog: Vec<&ChatMessageRow> = history
         .iter()
@@ -204,8 +213,12 @@ pub(crate) fn build_messages(
     history: &[ChatMessageRow],
     memory_block: Option<String>,
     skills_block: Option<String>,
+    lessons_block: Option<String>,
 ) -> Vec<ChatMessage> {
-    let mut messages = vec![ChatMessage::new("system", system_prompt(memory_block, skills_block))];
+    let mut messages = vec![ChatMessage::new(
+        "system",
+        system_prompt(memory_block, skills_block, lessons_block),
+    )];
     let start = history.len().saturating_sub(HISTORY_LIMIT);
     messages.extend(
         history[start..]
@@ -372,6 +385,7 @@ pub async fn context_usage(
         .unwrap_or_default();
     let memory_block = crate::memory::build_context(&state, &last_user).map_err(|e| e.to_string())?;
     let skills_block = crate::skills::active_block(&state, &last_user).map_err(|e| e.to_string())?;
+    let lessons_block = crate::learning::lessons_block(&state).map_err(|e| e.to_string())?;
     let params = ChatParams::default();
     let (_messages, usage) = build_budgeted_messages(
         &state,
@@ -379,6 +393,7 @@ pub async fn context_usage(
         &history,
         memory_block,
         skills_block,
+        lessons_block,
         params.max_tokens.max(MIN_RESERVE),
     )
     .await
@@ -408,6 +423,7 @@ async fn run_chat(
             .unwrap_or_default();
         let memory_block = crate::memory::build_context(&state, &last_user)?;
         let skills_block = crate::skills::active_block(&state, &last_user)?;
+        let lessons_block = crate::learning::lessons_block(&state)?;
 
         let params = ChatParams::default();
         let reserve = params.max_tokens.max(MIN_RESERVE);
@@ -417,6 +433,7 @@ async fn run_chat(
             &history,
             memory_block,
             skills_block,
+            lessons_block,
             reserve,
         )
         .await?;
@@ -854,7 +871,7 @@ mod tests {
             "Известное о проекте (используй, если релевантно):\n- в binres используется JFFS2"
                 .to_string(),
         );
-        let messages = build_messages(&history, block, None);
+        let messages = build_messages(&history, block, None, None);
         assert_eq!(messages[0].role, "system");
         assert!(messages[0].content.contains("Известное о проекте"), "{}", messages[0].content);
         assert!(messages[0].content.contains("JFFS2"), "{}", messages[0].content);
@@ -873,9 +890,26 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
         }];
         let skills = Some("Активные навыки (следуй им):\n### Кратко\nОтвечай сжато.".to_string());
-        let messages = build_messages(&history, None, skills);
+        let messages = build_messages(&history, None, skills, None);
         assert!(messages[0].content.contains("Активные навыки"), "{}", messages[0].content);
         assert!(messages[0].content.contains("Отвечай сжато"), "{}", messages[0].content);
+    }
+
+    #[test]
+    fn lessons_block_lands_in_system_prompt() {
+        let history = vec![ChatMessageRow {
+            id: "m1".into(),
+            session_id: "s1".into(),
+            role: "user".into(),
+            content: "привет".into(),
+            model_id: None,
+            tokens: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+        }];
+        let lessons = Some("Усвоенные правила (соблюдай):\n- отвечай без вступлений".to_string());
+        let messages = build_messages(&history, None, None, lessons);
+        assert!(messages[0].content.contains("Усвоенные правила"), "{}", messages[0].content);
+        assert!(messages[0].content.contains("без вступлений"), "{}", messages[0].content);
     }
 
     #[test]

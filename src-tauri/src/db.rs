@@ -87,6 +87,37 @@ pub struct SkillRow {
     pub created_at: String,
 }
 
+/// Усвоенное правило — результат обратной связи (самообучение без градиентов).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LessonRow {
+    pub id: String,
+    pub text: String,
+    pub source: Option<String>,
+    pub enabled: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedbackRow {
+    pub id: String,
+    pub message_id: String,
+    pub session_id: String,
+    pub rating: i64,
+    pub note: Option<String>,
+    pub created_at: String,
+}
+
+/// Датасет дистилляции для дообучения (JSONL с парами instruction/answer).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasetRow {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub teacher_model: Option<String>,
+    pub examples: i64,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebateRow {
     pub id: String,
@@ -313,6 +344,41 @@ impl Db {
                 )?;
             }
             conn.execute("INSERT INTO schema_version (version) VALUES (2)", [])?;
+        }
+
+        if current < 3 {
+            // Самообучение: усвоенные правила, оценки ответов и датасеты для дообучения.
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS lessons (
+                  id TEXT PRIMARY KEY,
+                  text TEXT NOT NULL,
+                  source TEXT,
+                  enabled INTEGER NOT NULL DEFAULT 1,
+                  created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS feedback (
+                  id TEXT PRIMARY KEY,
+                  message_id TEXT NOT NULL,
+                  session_id TEXT NOT NULL,
+                  rating INTEGER NOT NULL,
+                  note TEXT,
+                  created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_feedback_message ON feedback(message_id);
+
+                CREATE TABLE IF NOT EXISTS datasets (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  path TEXT NOT NULL,
+                  teacher_model TEXT,
+                  examples INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL
+                );
+                "#,
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (3)", [])?;
         }
         Ok(())
     }
@@ -808,6 +874,154 @@ impl Db {
         Ok(())
     }
 
+    // ------------------------------------------------------------------ обучение
+    pub fn lessons_list(&self) -> Result<Vec<LessonRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, text, source, enabled, created_at FROM lessons ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map([], map_lesson)?.collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn lesson_add(&self, text: &str, source: Option<&str>) -> Result<LessonRow> {
+        let row = LessonRow {
+            id: new_id(),
+            text: text.trim().to_string(),
+            source: source.map(|s| s.to_string()),
+            enabled: true,
+            created_at: now(),
+        };
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO lessons (id, text, source, enabled, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![row.id, row.text, row.source, row.enabled as i64, row.created_at],
+        )?;
+        Ok(row)
+    }
+
+    pub fn lesson_delete(&self, id: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute("DELETE FROM lessons WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn lesson_set_enabled(&self, id: &str, enabled: bool) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE lessons SET enabled = ?2 WHERE id = ?1",
+            params![id, enabled as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Одна оценка на сообщение: новая перезаписывает старую.
+    pub fn feedback_set(
+        &self,
+        message_id: &str,
+        session_id: &str,
+        rating: i64,
+        note: Option<&str>,
+    ) -> Result<FeedbackRow> {
+        let row = FeedbackRow {
+            id: new_id(),
+            message_id: message_id.to_string(),
+            session_id: session_id.to_string(),
+            rating,
+            note: note.map(|s| s.to_string()),
+            created_at: now(),
+        };
+        let conn = self.conn();
+        conn.execute("DELETE FROM feedback WHERE message_id = ?1", params![message_id])?;
+        conn.execute(
+            "INSERT INTO feedback (id, message_id, session_id, rating, note, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![row.id, row.message_id, row.session_id, row.rating, row.note, row.created_at],
+        )?;
+        Ok(row)
+    }
+
+    pub fn feedback_list(&self, session_id: &str) -> Result<Vec<FeedbackRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, message_id, session_id, rating, note, created_at
+             FROM feedback WHERE session_id = ?1 ORDER BY created_at DESC",
+        )?;
+        let rows = stmt
+            .query_map(params![session_id], |row| {
+                Ok(FeedbackRow {
+                    id: row.get(0)?,
+                    message_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    rating: row.get(3)?,
+                    note: row.get(4)?,
+                    created_at: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn dataset_add(
+        &self,
+        name: &str,
+        path: &str,
+        teacher_model: Option<&str>,
+        examples: i64,
+    ) -> Result<DatasetRow> {
+        let row = DatasetRow {
+            id: new_id(),
+            name: name.trim().to_string(),
+            path: path.to_string(),
+            teacher_model: teacher_model.map(|s| s.to_string()),
+            examples,
+            created_at: now(),
+        };
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO datasets (id, name, path, teacher_model, examples, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![row.id, row.name, row.path, row.teacher_model, row.examples, row.created_at],
+        )?;
+        Ok(row)
+    }
+
+    pub fn datasets_list(&self) -> Result<Vec<DatasetRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, path, teacher_model, examples, created_at
+             FROM datasets ORDER BY created_at DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(DatasetRow {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    path: row.get(2)?,
+                    teacher_model: row.get(3)?,
+                    examples: row.get(4)?,
+                    created_at: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn dataset_delete(&self, id: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute("DELETE FROM datasets WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn dataset_set_examples(&self, id: &str, examples: i64) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE datasets SET examples = ?2 WHERE id = ?1",
+            params![id, examples],
+        )?;
+        Ok(())
+    }
+
     // ------------------------------------------------------------------ дебаты
     pub fn debate_create(&self, task: &str, participants: &str, rounds: i64, judge: Option<&str>) -> Result<DebateRow> {
         let row = DebateRow {
@@ -993,6 +1207,16 @@ fn map_provider(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderRow> {
         enabled: row.get::<_, i64>(5)? != 0,
         timeout_s: row.get(6)?,
         created_at: row.get(7)?,
+    })
+}
+
+fn map_lesson(row: &rusqlite::Row<'_>) -> rusqlite::Result<LessonRow> {
+    Ok(LessonRow {
+        id: row.get(0)?,
+        text: row.get(1)?,
+        source: row.get(2)?,
+        enabled: row.get::<_, i64>(3)? != 0,
+        created_at: row.get(4)?,
     })
 }
 

@@ -7,10 +7,14 @@ import type {
   CheckResult,
   CommandResult,
   ContextUsage,
+  DatasetRow,
   DebateDetail,
   DebateRow,
   DebateStartResult,
   EditStart,
+  FeedbackRow,
+  FinetuneStatus,
+  LessonRow,
   MemoryRow,
   ModelInfo,
   ProviderInput,
@@ -56,6 +60,26 @@ export const api = {
   skillDelete: (id: string) => invoke<void>("skill_delete", { id }),
   skillSetEnabled: (id: string, enabled: boolean) =>
     invoke<void>("skill_set_enabled", { id, enabled }),
+
+  lessonsList: () => invoke<LessonRow[]>("lessons_list"),
+  lessonAdd: (text: string, source?: string | null) =>
+    invoke<LessonRow>("lesson_add", { text, source: source ?? null }),
+  lessonDelete: (id: string) => invoke<void>("lesson_delete", { id }),
+  lessonSetEnabled: (id: string, enabled: boolean) =>
+    invoke<void>("lesson_set_enabled", { id, enabled }),
+  feedbackSet: (messageId: string, sessionId: string, rating: number, note?: string | null) =>
+    invoke<FeedbackRow>("feedback_set", { messageId, sessionId, rating, note: note ?? null }),
+
+  datasetsList: () => invoke<DatasetRow[]>("datasets_list"),
+  datasetGenerate: (req: {
+    name: string;
+    teacher_model: string;
+    source_text?: string | null;
+    session_id?: string | null;
+    count?: number;
+  }) => invoke<DatasetRow>("dataset_generate", { req }),
+  datasetDelete: (id: string) => invoke<void>("dataset_delete", { id }),
+  finetuneStatus: () => invoke<FinetuneStatus>("finetune_status"),
 
   providersList: () => invoke<ProviderView[]>("providers_list"),
   providerSave: (input: ProviderInput) => invoke<ProviderView>("provider_save", { input }),

@@ -1034,3 +1034,120 @@ label.inline {
 .composer {
   position: relative;
 }
+
+/* ---------------------------------------------------------------- обучение */
+.lesson-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.lesson-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.lesson-item.off {
+  opacity: 0.55;
+}
+
+.lesson-text {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 240px;
+  flex: 1;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.dataset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.dataset-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+}
+
+.finetune-status {
+  margin-bottom: 12px;
+}
+
+.pkg-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.pkg.ok {
+  color: #7fd6a2;
+}
+
+.pkg.bad {
+  color: #ff9b97;
+}
+
+.code-block {
+  background: #0f1216;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.code-block pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* Формы обучения: текстовые области на всю ширину, radio в строку */
+.form > textarea,
+.card > textarea {
+  width: 100%;
+}
+
+label.inline {
+  flex-direction: row !important;
+}
+
+.finetune-status .row {
+  row-gap: 6px;
+}

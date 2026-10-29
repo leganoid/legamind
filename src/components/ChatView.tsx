@@ -228,6 +228,30 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const rate = async (message: ChatMessageRow, rating: number) => {
+    let note: string | null = null;
+    if (rating < 0) {
+      const answer = window.prompt(
+        "Что было не так? Правило сохранится и будет учитываться в ответах (можно оставить пустым):",
+        "",
+      );
+      if (answer === null) return;
+      note = answer.trim() || null;
+    }
+    try {
+      await api.feedbackSet(message.id, message.session_id, rating, note);
+      setNotice(
+        rating > 0
+          ? "Спасибо, оценка сохранена"
+          : note
+            ? "Правило сохранено — смотрите экран «Обучение»"
+            : "Оценка сохранена",
+      );
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const startEdit = (message: ChatMessageRow) => {
     setEditingId(message.id);
     setEditText(message.content);
@@ -438,6 +462,18 @@ export default function ChatView(props: Props) {
                 actions={
                   !busy() && editingId() === null ? (
                     <>
+                      <Show when={message.role === "assistant"}>
+                        <button class="icon-btn" title="Полезный ответ" onClick={() => rate(message, 1)}>
+                          👍
+                        </button>
+                        <button
+                          class="icon-btn"
+                          title="Плохой ответ — можно превратить в правило"
+                          onClick={() => rate(message, -1)}
+                        >
+                          👎
+                        </button>
+                      </Show>
                       <Show when={message.id === lastAssistantId()}>
                         <button
                           class="btn tiny"
