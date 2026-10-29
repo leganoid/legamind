@@ -19,10 +19,10 @@ for ($i = 0; $i -lt 300; $i++) {
 if (-not $port) { Stop-Process -Id $proc.Id -Force; throw 'Сайдкар не сообщил порт' }
 
 try {
-    $health = Invoke-RestMethod "http://127.0.0.1:$port/health"
+    $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 10
     Write-Host "health: $($health.status), загружено: $($health.models_loaded -join ', ')"
 
-    $models = Invoke-RestMethod "http://127.0.0.1:$port/models"
+    $models = Invoke-RestMethod "http://127.0.0.1:$port/models" -TimeoutSec 10
     Write-Host "models: $($models.Count)"
     $models | ForEach-Object { Write-Host ("  {0} ({1}, {2} ГБ)" -f $_.id, $_.device, $_.size_gb) }
 
@@ -38,11 +38,32 @@ try {
     } | ConvertTo-Json -Depth 5
 
     Write-Host "chat ($($model.id))..."
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/chat" -Method Post -Body $body `
-        -ContentType 'application/json' -TimeoutSec 300
-    $text = ($response.Content -split "`n" | Where-Object { $_ -like 'data: *' }) -join "`n"
-    Write-Host $text
-    if ($text -match '"done"') { Write-Host 'SMOKE OK' } else { Write-Host 'SMOKE: нет события done' }
+    # Invoke-WebRequest в PowerShell 5.1 падает на chunked SSE — читаем поток вручную.
+    $request = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$port/chat")
+    $request.Method = 'POST'
+    $request.ContentType = 'application/json'
+    $request.Timeout = 300000
+    $request.ReadWriteTimeout = 300000
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+    $request.ContentLength = $bytes.Length
+    $stream = $request.GetRequestStream()
+    $stream.Write($bytes, 0, $bytes.Length)
+    $stream.Close()
+
+    $response = $request.GetResponse()
+    $reader = New-Object System.IO.StreamReader($response.GetResponseStream(), [System.Text.Encoding]::UTF8)
+    $done = $false
+    while (-not $reader.EndOfStream) {
+        $line = $reader.ReadLine()
+        if ($line -and $line.StartsWith('data:')) {
+            Write-Host $line
+            if ($line -match '"done"') { $done = $true; break }
+        }
+    }
+    $reader.Close()
+    $response.Close()
+
+    if ($done) { Write-Host 'SMOKE OK' -ForegroundColor Green } else { Write-Host 'SMOKE: нет события done' -ForegroundColor Red }
 }
 finally {
     Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
