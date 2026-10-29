@@ -118,6 +118,18 @@ pub struct DatasetRow {
     pub created_at: String,
 }
 
+/// Источник из интернета, на который опирался ответ.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceRow {
+    pub id: String,
+    pub message_id: String,
+    pub session_id: String,
+    pub title: Option<String>,
+    pub url: String,
+    pub snippet: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebateRow {
     pub id: String,
@@ -379,6 +391,26 @@ impl Db {
                 "#,
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (3)", [])?;
+        }
+
+        if current < 4 {
+            // Источники интернет-поиска, привязанные к ответу модели.
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS message_sources (
+                  id TEXT PRIMARY KEY,
+                  message_id TEXT NOT NULL,
+                  session_id TEXT NOT NULL,
+                  title TEXT,
+                  url TEXT NOT NULL,
+                  snippet TEXT,
+                  created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_sources_message ON message_sources(message_id);
+                CREATE INDEX IF NOT EXISTS idx_sources_session ON message_sources(session_id);
+                "#,
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (4)", [])?;
         }
         Ok(())
     }
@@ -1020,6 +1052,46 @@ impl Db {
             params![id, examples],
         )?;
         Ok(())
+    }
+
+    // ------------------------------------------------------------------ источники
+    pub fn source_add(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        title: &str,
+        url: &str,
+        snippet: &str,
+    ) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO message_sources (id, message_id, session_id, title, url, snippet, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![new_id(), message_id, session_id, title, url, snippet, now()],
+        )?;
+        Ok(())
+    }
+
+    pub fn sources_list(&self, session_id: &str) -> Result<Vec<SourceRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, message_id, session_id, title, url, snippet, created_at
+             FROM message_sources WHERE session_id = ?1 ORDER BY rowid",
+        )?;
+        let rows = stmt
+            .query_map(params![session_id], |row| {
+                Ok(SourceRow {
+                    id: row.get(0)?,
+                    message_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    title: row.get(3)?,
+                    url: row.get(4)?,
+                    snippet: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     // ------------------------------------------------------------------ дебаты

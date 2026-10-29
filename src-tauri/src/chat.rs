@@ -103,6 +103,7 @@ fn system_prompt(
     memory_block: Option<String>,
     skills_block: Option<String>,
     lessons_block: Option<String>,
+    web_block: Option<String>,
 ) -> String {
     let mut system =
         String::from("Ты — Legamind, локальный ассистент для разработки и инженерии. Отвечай по-русски, по делу.");
@@ -113,6 +114,10 @@ fn system_prompt(
     if let Some(lessons) = lessons_block {
         system.push_str("\n\n");
         system.push_str(&lessons);
+    }
+    if let Some(web) = web_block {
+        system.push_str("\n\n");
+        system.push_str(&web);
     }
     if let Some(block) = memory_block {
         system.push_str("\n\n");
@@ -166,10 +171,11 @@ async fn build_budgeted_messages(
     memory_block: Option<String>,
     skills_block: Option<String>,
     lessons_block: Option<String>,
+    web_block: Option<String>,
     reserve: u32,
 ) -> Result<(Vec<ChatMessage>, ContextUsage)> {
     let limit = context_limit(state, model_id);
-    let system = system_prompt(memory_block, skills_block, lessons_block);
+    let system = system_prompt(memory_block, skills_block, lessons_block, web_block);
 
     let dialog: Vec<&ChatMessageRow> = history
         .iter()
@@ -214,10 +220,11 @@ pub(crate) fn build_messages(
     memory_block: Option<String>,
     skills_block: Option<String>,
     lessons_block: Option<String>,
+    web_block: Option<String>,
 ) -> Vec<ChatMessage> {
     let mut messages = vec![ChatMessage::new(
         "system",
-        system_prompt(memory_block, skills_block, lessons_block),
+        system_prompt(memory_block, skills_block, lessons_block, web_block),
     )];
     let start = history.len().saturating_sub(HISTORY_LIMIT);
     messages.extend(
@@ -394,6 +401,7 @@ pub async fn context_usage(
         memory_block,
         skills_block,
         lessons_block,
+        None,
         params.max_tokens.max(MIN_RESERVE),
     )
     .await
@@ -410,7 +418,7 @@ async fn run_chat(
 ) {
     let state = app.state::<AppState>();
 
-    let result: Result<(crate::models::ChatOutcome, Vec<ChatMessage>, ContextUsage)> = async {
+    let result: Result<(crate::models::ChatOutcome, Vec<ChatMessage>, ContextUsage, Vec<crate::web::WebResult>)> = async {
         if model_id.starts_with("local/") {
             crate::sidecar::ensure_ready(&app).await?;
         }
@@ -425,6 +433,22 @@ async fn run_chat(
         let skills_block = crate::skills::active_block(&state, &last_user)?;
         let lessons_block = crate::learning::lessons_block(&state)?;
 
+        // Интернет: ищем до обращения к модели, чтобы вставить свежие данные в контекст.
+        if crate::web::enabled(&state) && crate::web::should_search(&last_user) {
+            let _ = app.emit(
+                "chat:status",
+                StatusPayload {
+                    request_id: request_id.clone(),
+                    session_id: session_id.clone(),
+                    phase: "web".to_string(),
+                    label: Some("Ищу в интернете…".to_string()),
+                    device: None,
+                    seconds: None,
+                },
+            );
+        }
+        let (web_block, sources) = crate::web::context_for(&state, &last_user).await;
+
         let params = ChatParams::default();
         let reserve = params.max_tokens.max(MIN_RESERVE);
         let (messages, usage) = build_budgeted_messages(
@@ -434,6 +458,7 @@ async fn run_chat(
             memory_block,
             skills_block,
             lessons_block,
+            web_block,
             reserve,
         )
         .await?;
@@ -475,12 +500,12 @@ async fn run_chat(
         let outcome = router
             .stream(&model_id, &messages, &params, &cancel, &mut on_delta, &mut on_status)
             .await?;
-        Ok((outcome, messages, usage))
+        Ok((outcome, messages, usage, sources))
     }
     .await;
 
     match result {
-        Ok((outcome, messages, usage)) => {
+        Ok((outcome, messages, usage, sources)) => {
             if let Ok(message) = state.db.message_add(
                 &session_id,
                 "assistant",
@@ -488,6 +513,15 @@ async fn run_chat(
                 Some(&model_id),
                 Some(outcome.tokens as i64),
             ) {
+                for source in &sources {
+                    let _ = state.db.source_add(
+                        &session_id,
+                        &message.id,
+                        &source.title,
+                        &source.url,
+                        &source.snippet,
+                    );
+                }
                 let _ = state.db.session_touch(&session_id);
                 let _ = app.emit(
                     "chat:done",
@@ -590,6 +624,7 @@ pub fn help_text() -> String {
         "/skills — список навыков",
         "/skill <название> — включить/выключить навык",
         "/export — выгрузить переписку в .md",
+        "/web <запрос> — поиск в интернете, /web on|off — вкл/выкл",
         "",
         "Без слэша: «запомни: …» тоже сохраняет факт.",
     ]
@@ -803,6 +838,15 @@ pub fn local_command(
     }
 }
 
+/// Источники, на которые опирались ответы сессии.
+#[tauri::command]
+pub async fn sources_list(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Vec<crate::db::SourceRow>, String> {
+    state.db.sources_list(&session_id).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn chat_command(
     app: AppHandle,
@@ -819,6 +863,48 @@ pub async fn chat_command(
 
     let (cmd, args) = parse_command(&input)
         .ok_or_else(|| "Команда должна начинаться с «/». Список: /help".to_string())?;
+
+    if cmd == "web" {
+        if args.is_empty() {
+            let enabled = crate::web::enabled(&state);
+            return notice(format!(
+                "Интернет: {} · провайдер: {}",
+                if enabled { "включён" } else { "выключен" },
+                crate::web::provider(&state)
+            ));
+        }
+        if args == "on" || args == "off" {
+            state
+                .db
+                .setting_set("web_enabled", if args == "on" { "1" } else { "0" })
+                .map_err(|e| e.to_string())?;
+            return notice(format!(
+                "Интернет {}",
+                if args == "on" { "включён" } else { "выключен" }
+            ));
+        }
+        let results = crate::web::search(&state, &args, 5)
+            .await
+            .map_err(|e| e.to_string())?;
+        if results.is_empty() {
+            return notice("Ничего не найдено");
+        }
+        let text = results
+            .iter()
+            .enumerate()
+            .map(|(index, result)| {
+                format!(
+                    "[{}] {}\n{}\n{}",
+                    index + 1,
+                    result.title,
+                    result.url,
+                    result.snippet
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        return notice(text);
+    }
 
     if let Some(result) = local_command(&state.db, &state.data_dir, &session_id, &cmd, &args)? {
         return Ok(result);
@@ -871,7 +957,7 @@ mod tests {
             "Известное о проекте (используй, если релевантно):\n- в binres используется JFFS2"
                 .to_string(),
         );
-        let messages = build_messages(&history, block, None, None);
+        let messages = build_messages(&history, block, None, None, None);
         assert_eq!(messages[0].role, "system");
         assert!(messages[0].content.contains("Известное о проекте"), "{}", messages[0].content);
         assert!(messages[0].content.contains("JFFS2"), "{}", messages[0].content);
@@ -890,7 +976,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
         }];
         let skills = Some("Активные навыки (следуй им):\n### Кратко\nОтвечай сжато.".to_string());
-        let messages = build_messages(&history, None, skills, None);
+        let messages = build_messages(&history, None, skills, None, None);
         assert!(messages[0].content.contains("Активные навыки"), "{}", messages[0].content);
         assert!(messages[0].content.contains("Отвечай сжато"), "{}", messages[0].content);
     }
@@ -907,7 +993,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
         }];
         let lessons = Some("Усвоенные правила (соблюдай):\n- отвечай без вступлений".to_string());
-        let messages = build_messages(&history, None, None, lessons);
+        let messages = build_messages(&history, None, None, lessons, None);
         assert!(messages[0].content.contains("Усвоенные правила"), "{}", messages[0].content);
         assert!(messages[0].content.contains("без вступлений"), "{}", messages[0].content);
     }

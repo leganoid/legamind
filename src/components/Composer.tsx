@@ -20,6 +20,7 @@ const COMMANDS: CommandHint[] = [
   { cmd: "/skills", description: "список навыков" },
   { cmd: "/skill", description: "включить/выключить навык", needsArg: true },
   { cmd: "/export", description: "экспорт переписки в .md" },
+  { cmd: "/web", description: "поиск в интернете", needsArg: true },
   { cmd: "/help", description: "список команд" },
 ];
 

@@ -27,6 +27,10 @@ import type {
   Session,
   Skill,
   SkillInput,
+  SourceRow,
+  WebConfigView,
+  WebResult,
+  WebTestResult,
 } from "./types";
 
 export const api = {
@@ -90,6 +94,20 @@ export const api = {
   candidateCheck: (modelId: string, instruction: string, answer: string) =>
     invoke<CandidateCheck>("candidate_check", { modelId, instruction, answer }),
   finetuneStatus: () => invoke<FinetuneStatus>("finetune_status"),
+
+  webConfigGet: () => invoke<WebConfigView>("web_config_get"),
+  webConfigSet: (input: {
+    enabled?: boolean;
+    provider?: string;
+    searxng_url?: string;
+    tavily_key?: string;
+    brave_key?: string;
+  }) => invoke<WebConfigView>("web_config_set", { input }),
+  webSearch: (query: string, limit?: number) =>
+    invoke<WebResult[]>("web_search", { query, limit: limit ?? 5 }),
+  webTest: () => invoke<WebTestResult>("web_test"),
+  webFetchPage: (url: string) => invoke<string>("web_fetch_page", { url }),
+  sourcesList: (sessionId: string) => invoke<SourceRow[]>("sources_list", { sessionId }),
 
   providersList: () => invoke<ProviderView[]>("providers_list"),
   providerSave: (input: ProviderInput) => invoke<ProviderView>("provider_save", { input }),

@@ -1,6 +1,6 @@
-import { Show, createSignal } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "solid-js";
-import type { ChatMessageRow } from "../types";
+import type { ChatMessageRow, SourceRow } from "../types";
 import { renderMarkdown } from "../markdown";
 
 interface Props {
@@ -8,11 +8,13 @@ interface Props {
   modelLabel: (id: string | null) => string;
   streaming?: boolean;
   actions?: JSX.Element;
+  sources?: SourceRow[];
 }
 
 export default function Message(props: Props) {
   const isUser = () => props.message.role === "user";
   const [copied, setCopied] = createSignal(false);
+  const [copiedUrl, setCopiedUrl] = createSignal<string | null>(null);
 
   const copy = async () => {
     try {
@@ -21,6 +23,24 @@ export default function Message(props: Props) {
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       // Буфер обмена может быть недоступен — молча игнорируем.
+    }
+  };
+
+  const copyLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(url);
+      window.setTimeout(() => setCopiedUrl(null), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
+  const domain = (url: string) => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return url;
     }
   };
 
@@ -46,6 +66,33 @@ export default function Message(props: Props) {
         fallback={<div class="message-body">{props.message.content}</div>}
       >
         <div class="message-body markdown" innerHTML={renderMarkdown(props.message.content)} />
+      </Show>
+      <Show when={props.sources && props.sources.length > 0}>
+        <details class="sources">
+          <summary class="muted small">Источники ({props.sources!.length})</summary>
+          <ol>
+            <For each={props.sources}>
+              {(source) => (
+                <li>
+                  <a
+                    href={source.url}
+                    title="Скопировать ссылку"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void copyLink(source.url);
+                    }}
+                  >
+                    {source.title?.trim() || domain(source.url)}
+                  </a>
+                  <span class="muted small"> — {domain(source.url)}</span>
+                  <Show when={copiedUrl() === source.url}>
+                    <span class="muted small"> · скопировано</span>
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ol>
+        </details>
       </Show>
     </article>
   );

@@ -1199,3 +1199,50 @@ label.inline {
   border-left: 2px solid var(--border);
   padding-left: 8px;
 }
+
+/* ---------------------------------------------------------------- интернет */
+.btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(70, 130, 255, 0.12);
+}
+
+.sources {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.sources summary {
+  cursor: pointer;
+}
+
+.sources ol {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  font-size: 12.5px;
+}
+
+.sources li {
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.sources a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.sources a:hover {
+  text-decoration: underline;
+}
+
+.web-test ol {
+  margin: 8px 0 0 18px;
+  font-size: 12.5px;
+}
+
+.web-test li {
+  margin-bottom: 8px;
+  word-break: break-word;
+}

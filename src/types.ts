@@ -269,6 +269,36 @@ export interface AppendResult {
   total: number;
 }
 
+export interface WebConfigView {
+  enabled: boolean;
+  provider: string;
+  searxng_url: string;
+  has_tavily: boolean;
+  has_brave: boolean;
+}
+
+export interface WebResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+export interface WebTestResult {
+  provider: string;
+  results: WebResult[];
+  error: string | null;
+}
+
+export interface SourceRow {
+  id: string;
+  message_id: string;
+  session_id: string;
+  title: string | null;
+  url: string;
+  snippet: string | null;
+  created_at: string;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

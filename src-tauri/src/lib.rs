@@ -11,6 +11,7 @@ pub mod providers;
 pub mod secrets;
 pub mod sidecar;
 pub mod skills;
+pub mod web;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -254,6 +255,7 @@ pub fn run() {
             chat::chat_edit_and_resend,
             chat::context_usage,
             chat::chat_command,
+            chat::sources_list,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,
@@ -270,6 +272,11 @@ pub fn run() {
             learning::dataset_append,
             learning::session_extract,
             learning::candidate_check,
+            web::web_config_get,
+            web::web_config_set,
+            web::web_search,
+            web::web_test,
+            web::web_fetch_page,
             learning::finetune_status,
             learning::learning_models,
             models_load,

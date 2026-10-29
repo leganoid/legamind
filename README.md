@@ -107,3 +107,15 @@ scripts/             mock_openai.py, smoke.ps1, env.ps1
 * БД: `%APPDATA%\com.legamind.app\legamind.db`
 * Логи: `%APPDATA%\com.legamind.app\logs\`
 * Экспорт дебатов: `%APPDATA%\com.legamind.app\exports\debate-<id>.md`
+
+## Интернет для локальных моделей
+
+Локальные модели получают свежие данные из интернета: перед ответом Legamind ищет запрос
+и вставляет результаты в system-промпт («Актуальные данные из интернета…»), а ссылки
+сохраняются под ответом как «Источники». Включается кнопкой 🌐 в шапке чата или в настройках;
+команды — `/web <запрос>`, `/web on|off`.
+
+Провайдеры поиска: Yahoo (без ключа, по умолчанию), Wikipedia, Stack Exchange, GitHub (без
+ключа), свой SearxNG, Tavily и Brave (API-ключи), плюс best-effort Bing/DuckDuckGo. Режим
+«Авто» перебирает: ключ → SearxNG → Yahoo → Wikipedia → Stack Exchange → GitHub.
+Короткие реплики («привет») не ищутся; запрос не длиннее 300 символов.

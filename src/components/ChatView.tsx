@@ -10,6 +10,7 @@ import type {
   ContextUsage,
   ModelInfo,
   Session,
+  SourceRow,
 } from "../types";
 import Sidebar from "./Sidebar";
 import ChatMessage from "./Message";
@@ -38,6 +39,8 @@ export default function ChatView(props: Props) {
   const [streamText, setStreamText] = createSignal("");
   const [statusText, setStatusText] = createSignal<string | null>(null);
   const [commandBusy, setCommandBusy] = createSignal(false);
+  const [webEnabled, setWebEnabled] = createSignal(true);
+  const [sourcesByMessage, setSourcesByMessage] = createSignal<Record<string, SourceRow[]>>({});
   const [context, setContext] = createSignal<ContextUsage | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -89,10 +92,38 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const loadSources = async (id: string) => {
+    try {
+      const list = await api.sourcesList(id);
+      const grouped: Record<string, SourceRow[]> = {};
+      for (const source of list) {
+        (grouped[source.message_id] ??= []).push(source);
+      }
+      setSourcesByMessage(grouped);
+    } catch {
+      setSourcesByMessage({});
+    }
+  };
+
+  const toggleWeb = async () => {
+    try {
+      const config = await api.webConfigSet({ enabled: !webEnabled() });
+      setWebEnabled(config.enabled);
+      setNotice(
+        config.enabled
+          ? "Интернет включён: перед ответом модель получит результаты поиска"
+          : "Интернет выключен",
+      );
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const openSession = async (id: string) => {
     setActiveId(id);
     setError(null);
     setMessages(await api.messagesList(id));
+    await loadSources(id);
     const session = sessions().find((s) => s.id === id);
     if (session && props.models.some((m) => m.id === session.model_id)) {
       setModelId(session.model_id);
@@ -282,6 +313,12 @@ export default function ChatView(props: Props) {
 
   onMount(async () => {
     setModelId(defaultModel());
+    try {
+      const config = await api.webConfigGet();
+      setWebEnabled(config.enabled);
+    } catch {
+      // Конфиг интернета недоступен — остаётся значение по умолчанию.
+    }
     await refreshSessions();
     const list = await api.sessionsList();
     if (list.length > 0) {
@@ -325,6 +362,7 @@ export default function ChatView(props: Props) {
         setStatusText(null);
         if (event.payload.context) setContext(event.payload.context);
         if (event.payload.stopped) setNotice("Генерация остановлена");
+        await loadSources(event.payload.session_id);
         await refreshSessions();
         props.onModelsChanged();
       }),
@@ -418,6 +456,13 @@ export default function ChatView(props: Props) {
               {formatTokens(context()!.used)} / {formatTokens(context()!.limit)}
             </span>
           </Show>
+          <button
+            classList={{ btn: true, small: true, active: webEnabled() }}
+            title="Интернет: поиск перед ответом и источники"
+            onClick={toggleWeb}
+          >
+            🌐 {webEnabled() ? "онлайн" : "офлайн"}
+          </button>
           <span class="muted small">
             {activeSession() ? activeSession()!.title : "Сессия не выбрана"}
           </span>
@@ -459,6 +504,7 @@ export default function ChatView(props: Props) {
               <ChatMessage
                 message={message}
                 modelLabel={modelLabel}
+                sources={sourcesByMessage()[message.id]}
                 actions={
                   !busy() && editingId() === null ? (
                     <>
