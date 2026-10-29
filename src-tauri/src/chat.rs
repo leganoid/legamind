@@ -99,14 +99,40 @@ fn extract_memory_command(text: &str) -> Option<String> {
     None
 }
 
+/// Подсказка режима работы, добавляемая к system-промпту.
+fn mode_prompt(mode: &str) -> Option<&'static str> {
+    match mode {
+        "plan" => Some(
+            "Режим «Планирование». Сначала уточни цель и ограничения, затем предложи план шагами \
+             (что и в каком порядке делать). Не пиши финальный код и не делай вид, что изменения уже \
+             внесены; в конце спроси подтверждение плана.",
+        ),
+        "build" => Some(
+            "Режим «Создание». Сразу выдавай рабочий результат: готовый код, команды, структуру файлов \
+             и точные шаги. Минимум рассуждений и вступлений; если чего-то не хватает — сделай разумное \
+             допущение и явно отметь его.",
+        ),
+        "review" => Some(
+            "Режим «Ревью». Проверяй решение: ищи ошибки, риски, уязвимости и краевые случаи, \
+             предлагай конкретные исправления с примерами. Не переписывай всё без нужды.",
+        ),
+        _ => None,
+    }
+}
+
 fn system_prompt(
     memory_block: Option<String>,
     skills_block: Option<String>,
     lessons_block: Option<String>,
     web_block: Option<String>,
+    mode: &str,
 ) -> String {
     let mut system =
         String::from("Ты — Legamind, локальный ассистент для разработки и инженерии. Отвечай по-русски, по делу.");
+    if let Some(mode_text) = mode_prompt(mode) {
+        system.push_str("\n\n");
+        system.push_str(mode_text);
+    }
     if let Some(skills) = skills_block {
         system.push_str("\n\n");
         system.push_str(&skills);
@@ -172,10 +198,11 @@ async fn build_budgeted_messages(
     skills_block: Option<String>,
     lessons_block: Option<String>,
     web_block: Option<String>,
+    mode: &str,
     reserve: u32,
 ) -> Result<(Vec<ChatMessage>, ContextUsage)> {
     let limit = context_limit(state, model_id);
-    let system = system_prompt(memory_block, skills_block, lessons_block, web_block);
+    let system = system_prompt(memory_block, skills_block, lessons_block, web_block, mode);
 
     let dialog: Vec<&ChatMessageRow> = history
         .iter()
@@ -221,10 +248,11 @@ pub(crate) fn build_messages(
     skills_block: Option<String>,
     lessons_block: Option<String>,
     web_block: Option<String>,
+    mode: &str,
 ) -> Vec<ChatMessage> {
     let mut messages = vec![ChatMessage::new(
         "system",
-        system_prompt(memory_block, skills_block, lessons_block, web_block),
+        system_prompt(memory_block, skills_block, lessons_block, web_block, mode),
     )];
     let start = history.len().saturating_sub(HISTORY_LIMIT);
     messages.extend(
@@ -393,6 +421,11 @@ pub async fn context_usage(
     let memory_block = crate::memory::build_context(&state, &last_user).map_err(|e| e.to_string())?;
     let skills_block = crate::skills::active_block(&state, &last_user).map_err(|e| e.to_string())?;
     let lessons_block = crate::learning::lessons_block(&state).map_err(|e| e.to_string())?;
+    let session = state
+        .db
+        .session_get(&session_id)
+        .map_err(|e| e.to_string())?;
+    let mode = session.as_ref().map(|s| s.mode.as_str()).unwrap_or("chat");
     let params = ChatParams::default();
     let (_messages, usage) = build_budgeted_messages(
         &state,
@@ -402,6 +435,7 @@ pub async fn context_usage(
         skills_block,
         lessons_block,
         None,
+        mode,
         params.max_tokens.max(MIN_RESERVE),
     )
     .await
@@ -449,7 +483,16 @@ async fn run_chat(
         }
         let (web_block, sources) = crate::web::context_for(&state, &last_user).await;
 
-        let params = ChatParams::default();
+        let session = state.db.session_get(&session_id)?;
+        let mode = session.as_ref().map(|s| s.mode.as_str()).unwrap_or("chat");
+        let mut params = ChatParams::default();
+        if let Some(policy) = session.as_ref().and_then(|s| s.reasoning.as_deref()) {
+            match policy {
+                "on" => params.think = true,
+                "off" => params.think = false,
+                other => params.reasoning = Some(other.to_string()),
+            }
+        }
         let reserve = params.max_tokens.max(MIN_RESERVE);
         let (messages, usage) = build_budgeted_messages(
             &state,
@@ -459,6 +502,7 @@ async fn run_chat(
             skills_block,
             lessons_block,
             web_block,
+            mode,
             reserve,
         )
         .await?;
@@ -682,7 +726,7 @@ pub async fn compact_session(
             ),
         ),
     ];
-    let params = ChatParams { max_tokens: 900, temperature: 0.3, think: false };
+    let params = ChatParams { max_tokens: 900, temperature: 0.3, think: false, reasoning: None };
     let cancel = Arc::new(AtomicBool::new(false));
     let router = Router { state };
     let outcome = router
@@ -749,6 +793,9 @@ fn export_session(
         .session_get(session_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Сессия не найдена".to_string())?;
+    if session.trust == "read_only" {
+        return Err("Политика доверия «только чтение» запрещает запись файлов".into());
+    }
     let history = db.messages_list(session_id).map_err(|e| e.to_string())?;
     if history.is_empty() {
         return Err("В сессии нет сообщений".into());
@@ -797,6 +844,12 @@ fn workdir_command(
             Some(path) => notice(format!("Рабочая папка: {path}")),
             None => notice("Рабочая папка не задана. Укажите: /workdir C:\\Projects\\my-project"),
         };
+    }
+
+    if session.trust == "read_only" {
+        return Err(
+            "Политика доверия «только чтение» запрещает создавать папки и файлы".into(),
+        );
     }
 
     let dir = crate::workspace::prepare_workdir(args, true).map_err(|e| e.to_string())?;
@@ -996,7 +1049,7 @@ mod tests {
             "Известное о проекте (используй, если релевантно):\n- в binres используется JFFS2"
                 .to_string(),
         );
-        let messages = build_messages(&history, block, None, None, None);
+        let messages = build_messages(&history, block, None, None, None, "chat");
         assert_eq!(messages[0].role, "system");
         assert!(messages[0].content.contains("Известное о проекте"), "{}", messages[0].content);
         assert!(messages[0].content.contains("JFFS2"), "{}", messages[0].content);
@@ -1015,7 +1068,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
         }];
         let skills = Some("Активные навыки (следуй им):\n### Кратко\nОтвечай сжато.".to_string());
-        let messages = build_messages(&history, None, skills, None, None);
+        let messages = build_messages(&history, None, skills, None, None, "chat");
         assert!(messages[0].content.contains("Активные навыки"), "{}", messages[0].content);
         assert!(messages[0].content.contains("Отвечай сжато"), "{}", messages[0].content);
     }
@@ -1032,9 +1085,28 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
         }];
         let lessons = Some("Усвоенные правила (соблюдай):\n- отвечай без вступлений".to_string());
-        let messages = build_messages(&history, None, None, lessons, None);
+        let messages = build_messages(&history, None, None, lessons, None, "chat");
         assert!(messages[0].content.contains("Усвоенные правила"), "{}", messages[0].content);
         assert!(messages[0].content.contains("без вступлений"), "{}", messages[0].content);
+    }
+
+    #[test]
+    fn mode_prompt_lands_in_system_prompt() {
+        let history = vec![ChatMessageRow {
+            id: "m1".into(),
+            session_id: "s1".into(),
+            role: "user".into(),
+            content: "сделай".into(),
+            model_id: None,
+            tokens: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+        }];
+        let plan = build_messages(&history, None, None, None, None, "plan");
+        assert!(plan[0].content.contains("Планирование"), "{}", plan[0].content);
+        let build = build_messages(&history, None, None, None, None, "build");
+        assert!(build[0].content.contains("Создание"), "{}", build[0].content);
+        let chat = build_messages(&history, None, None, None, None, "chat");
+        assert!(!chat[0].content.contains("Режим «"), "{}", chat[0].content);
     }
 
     #[test]

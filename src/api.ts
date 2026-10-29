@@ -115,6 +115,10 @@ export const api = {
   sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>
     invoke<Session>("session_set_workdir", { sessionId, path, create }),
   openPath: (path: string) => invoke<void>("open_path", { path }),
+  sessionSetPolicy: (
+    sessionId: string,
+    patch: { mode?: string; trust?: string; reasoning?: string },
+  ) => invoke<Session>("session_set_policy", { sessionId, ...patch }),
 
   providersList: () => invoke<ProviderView[]>("providers_list"),
   providerSave: (input: ProviderInput) => invoke<ProviderView>("provider_save", { input }),

@@ -338,7 +338,7 @@ async fn run_generation(
     let mut attempts: u32 = 0;
     let batch = 4u32;
     let router = Router { state: &state };
-    let params = ChatParams { max_tokens: 700, temperature: 0.9, think: false };
+    let params = ChatParams { max_tokens: 700, temperature: 0.9, think: false, reasoning: None };
     emit_progress(&app, &dataset.id, "generating", 0, total, 0, None);
 
     while collected.len() < total as usize && attempts < total + 8 {
@@ -655,7 +655,7 @@ pub async fn session_extract(
         ChatMessage::new("system", "Ты извлекаешь обучающие данные. Отвечаешь только JSON."),
         ChatMessage::new("user", extract_prompt(&transcript)),
     ];
-    let params = ChatParams { max_tokens: 1200, temperature: 0.3, think: false };
+    let params = ChatParams { max_tokens: 1200, temperature: 0.3, think: false, reasoning: None };
     let cancel = std::sync::atomic::AtomicBool::new(false);
     let router = Router { state: &state };
     let outcome = router
@@ -699,7 +699,7 @@ pub async fn candidate_check(
         ChatMessage::new("system", "Отвечай по существу, без вступлений и извинений."),
         ChatMessage::new("user", instruction.clone()),
     ];
-    let params = ChatParams { max_tokens: 500, temperature: 0.2, think: false };
+    let params = ChatParams { max_tokens: 500, temperature: 0.2, think: false, reasoning: None };
     let cancel = std::sync::atomic::AtomicBool::new(false);
     let router = Router { state: &state };
     let outcome = router

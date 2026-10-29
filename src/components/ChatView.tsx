@@ -112,6 +112,56 @@ export default function ChatView(props: Props) {
     return parts[parts.length - 1] ?? "Папка";
   };
 
+  const reasoningOptions = () => {
+    const model = props.models.find((m) => m.id === modelId());
+    if (!model) return [] as { value: string; label: string }[];
+    if (model.kind === "local") {
+      return model.thinks
+        ? [
+            { value: "off", label: "Без размышлений" },
+            { value: "on", label: "С размышлениями" },
+          ]
+        : [];
+    }
+    if (model.efforts.length > 0) {
+      const labels: Record<string, string> = {
+        low: "Низкое",
+        high: "Среднее",
+        max: "Максимальное",
+      };
+      return [
+        { value: "auto", label: "Авто" },
+        ...model.efforts.map((level) => ({ value: level, label: labels[level] ?? level })),
+      ];
+    }
+    return [];
+  };
+
+  const updatePolicy = async (patch: { mode?: string; trust?: string; reasoning?: string }) => {
+    const id = activeId();
+    if (!id) return;
+    try {
+      const session = await api.sessionSetPolicy(id, patch);
+      setSessions((prev) => prev.map((s) => (s.id === session.id ? session : s)));
+      setNotice("Настройки сессии обновлены");
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const changeTrust = (value: string) => {
+    if (
+      value === "full" &&
+      !window.confirm(
+        "Полный доступ: модель сможет изменять, создавать и удалять любые файлы и настройки этой машины. Включить?",
+      )
+    ) {
+      setSessions((prev) => [...prev]);
+      return;
+    }
+    void updatePolicy({ trust: value });
+  };
+
   const chooseWorkdir = async () => {
     const id = activeId();
     if (!id) {
@@ -525,6 +575,60 @@ export default function ChatView(props: Props) {
             {activeSession() ? activeSession()!.title : "Сессия не выбрана"}
           </span>
         </header>
+
+        <div class="chat-controls">
+          <label class="control">
+            <span>Режим</span>
+            <select
+              value={activeSession()?.mode ?? "chat"}
+              onChange={(e) => updatePolicy({ mode: e.currentTarget.value })}
+            >
+              <option value="chat">Общение</option>
+              <option value="plan">Планирование</option>
+              <option value="build">Создание</option>
+              <option value="review">Ревью</option>
+            </select>
+          </label>
+          <Show when={reasoningOptions().length > 1}>
+            <label class="control">
+              <span>Рассуждения</span>
+              <select
+                value={activeSession()?.reasoning ?? reasoningOptions()[0].value}
+                onChange={(e) => updatePolicy({ reasoning: e.currentTarget.value })}
+              >
+                <For each={reasoningOptions()}>
+                  {(option) => (
+                    <option
+                      value={option.value}
+                      selected={
+                        option.value ===
+                        (activeSession()?.reasoning ?? reasoningOptions()[0].value)
+                      }
+                    >
+                      {option.label}
+                    </option>
+                  )}
+                </For>
+              </select>
+            </label>
+          </Show>
+          <label class="control">
+            <span>Доверие</span>
+            <select
+              value={activeSession()?.trust ?? "workspace"}
+              onChange={(e) => changeTrust(e.currentTarget.value)}
+            >
+              <option value="read_only">Только чтение</option>
+              <option value="workspace">Рабочая папка</option>
+              <option value="full">Полный доступ</option>
+            </select>
+          </label>
+          <Show when={(activeSession()?.trust ?? "workspace") === "full"}>
+            <span class="badge danger" title="Модель сможет менять файлы и настройки всей машины">
+              полный доступ
+            </span>
+          </Show>
+        </div>
 
         <Show when={error()}>
           <div class="banner error">

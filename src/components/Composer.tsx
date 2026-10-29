@@ -84,6 +84,8 @@ export default function Composer(props: Props) {
       <textarea
         ref={inputRef}
         value={text()}
+        spellcheck={true}
+        lang="ru-RU"
         placeholder="Сообщение… (Enter — отправить, Shift+Enter — перенос, /help — команды)"
         rows={2}
         disabled={props.disabled}

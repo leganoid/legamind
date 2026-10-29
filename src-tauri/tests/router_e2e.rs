@@ -145,7 +145,7 @@ async fn local_model_streams_through_router() {
             "Назови одну причину использовать OpenVINO. Одно предложение.",
         ),
     ];
-    let params = ChatParams { max_tokens: 64, temperature: 0.2, think: false };
+    let params = ChatParams { max_tokens: 64, temperature: 0.2, think: false, reasoning: None };
     let cancel = AtomicBool::new(false);
 
     let mut text = String::new();
@@ -222,7 +222,7 @@ async fn stop_flag_aborts_generation() {
         "user",
         "Напиши длинный список из двадцати пунктов про OpenVINO.",
     )];
-    let params = ChatParams { max_tokens: 512, temperature: 0.7, think: false };
+    let params = ChatParams { max_tokens: 512, temperature: 0.7, think: false, reasoning: None };
     let cancel = AtomicBool::new(false);
 
     let router = Router { state: &state };

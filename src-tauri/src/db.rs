@@ -29,6 +29,12 @@ pub struct Session {
     pub updated_at: String,
     /// Рабочая папка проекта сессии (может быть не задана).
     pub workdir: Option<String>,
+    /// Режим: chat | plan | build | review.
+    pub mode: String,
+    /// Доверие к файловым операциям: read_only | workspace | full.
+    pub trust: String,
+    /// Уровень размышлений: off/on (локальные), low/high/max (DeepSeek), None — авто.
+    pub reasoning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +75,8 @@ pub struct ProviderModelRow {
     pub model_id: String,
     pub label: Option<String>,
     pub context: Option<i64>,
+    /// JSON-массив уровней рассуждений, которые рекламирует провайдер.
+    pub efforts: Option<String>,
     pub updated_at: String,
 }
 
@@ -422,6 +430,24 @@ impl Db {
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (5)", [])?;
         }
+
+        if current < 6 {
+            // Режим работы, политика доверия и уровень рассуждений для сессии.
+            conn.execute_batch(
+                r#"
+                ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat';
+                ALTER TABLE sessions ADD COLUMN trust TEXT NOT NULL DEFAULT 'workspace';
+                ALTER TABLE sessions ADD COLUMN reasoning TEXT;
+                "#,
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (6)", [])?;
+        }
+
+        if current < 7 {
+            // Уровни рассуждений, которые рекламирует провайдер (/models → effort.supported_levels).
+            conn.execute_batch("ALTER TABLE provider_models ADD COLUMN efforts TEXT;")?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (7)", [])?;
+        }
         Ok(())
     }
 
@@ -429,7 +455,8 @@ impl Db {
     pub fn sessions_list(&self) -> Result<Vec<Session>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, model_id, created_at, updated_at, workdir FROM sessions ORDER BY updated_at DESC",
+            "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning
+             FROM sessions ORDER BY updated_at DESC",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -440,6 +467,9 @@ impl Db {
                     created_at: row.get(3)?,
                     updated_at: row.get(4)?,
                     workdir: row.get(5)?,
+                    mode: row.get(6)?,
+                    trust: row.get(7)?,
+                    reasoning: row.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -450,7 +480,8 @@ impl Db {
         let conn = self.conn();
         Ok(conn
             .query_row(
-                "SELECT id, title, model_id, created_at, updated_at, workdir FROM sessions WHERE id = ?1",
+                "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning
+                 FROM sessions WHERE id = ?1",
                 params![id],
                 |row| {
                     Ok(Session {
@@ -460,6 +491,9 @@ impl Db {
                         created_at: row.get(3)?,
                         updated_at: row.get(4)?,
                         workdir: row.get(5)?,
+                        mode: row.get(6)?,
+                        trust: row.get(7)?,
+                        reasoning: row.get(8)?,
                     })
                 },
             )
@@ -474,6 +508,9 @@ impl Db {
             created_at: now(),
             updated_at: now(),
             workdir: None,
+            mode: "chat".to_string(),
+            trust: "workspace".to_string(),
+            reasoning: None,
         };
         let conn = self.conn();
         conn.execute(
@@ -488,6 +525,37 @@ impl Db {
         conn.execute(
             "UPDATE sessions SET workdir = ?2, updated_at = ?3 WHERE id = ?1",
             params![id, workdir, now()],
+        )?;
+        Ok(())
+    }
+
+    /// Обновляет режим/доверие/рассуждения сессии (None — не менять).
+    pub fn session_set_policy(
+        &self,
+        id: &str,
+        mode: Option<&str>,
+        trust: Option<&str>,
+        reasoning: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE sessions SET
+                mode = COALESCE(?2, mode),
+                trust = COALESCE(?3, trust),
+                reasoning = COALESCE(?4, reasoning),
+                updated_at = ?5
+             WHERE id = ?1",
+            params![id, mode, trust, reasoning, now()],
+        )?;
+        Ok(())
+    }
+
+    /// Устанавливает или сбрасывает (None) уровень рассуждений.
+    pub fn session_set_reasoning(&self, id: &str, reasoning: Option<&str>) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE sessions SET reasoning = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, reasoning, now()],
         )?;
         Ok(())
     }
@@ -632,7 +700,7 @@ impl Db {
     pub fn provider_model_get(&self, provider_id: &str, model_id: &str) -> Result<Option<ProviderModelRow>> {        let conn = self.conn();
         Ok(conn
             .query_row(
-                "SELECT provider_id, model_id, label, context, updated_at FROM provider_models
+                "SELECT provider_id, model_id, label, context, efforts, updated_at FROM provider_models
                  WHERE provider_id = ?1 AND model_id = ?2",
                 params![provider_id, model_id],
                 |row| {
@@ -641,7 +709,8 @@ impl Db {
                         model_id: row.get(1)?,
                         label: row.get(2)?,
                         context: row.get(3)?,
-                        updated_at: row.get(4)?,
+                        efforts: row.get(4)?,
+                        updated_at: row.get(5)?,
                     })
                 },
             )
@@ -776,7 +845,7 @@ impl Db {
     pub fn provider_models(&self, provider_id: &str) -> Result<Vec<ProviderModelRow>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT provider_id, model_id, label, context, updated_at FROM provider_models
+            "SELECT provider_id, model_id, label, context, efforts, updated_at FROM provider_models
              WHERE provider_id = ?1 ORDER BY model_id ASC",
         )?;
         let rows = stmt
@@ -786,7 +855,8 @@ impl Db {
                     model_id: row.get(1)?,
                     label: row.get(2)?,
                     context: row.get(3)?,
-                    updated_at: row.get(4)?,
+                    efforts: row.get(4)?,
+                    updated_at: row.get(5)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -796,7 +866,7 @@ impl Db {
     pub fn provider_models_all(&self) -> Result<Vec<ProviderModelRow>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT provider_id, model_id, label, context, updated_at FROM provider_models
+            "SELECT provider_id, model_id, label, context, efforts, updated_at FROM provider_models
              ORDER BY provider_id, model_id",
         )?;
         let rows = stmt
@@ -806,23 +876,28 @@ impl Db {
                     model_id: row.get(1)?,
                     label: row.get(2)?,
                     context: row.get(3)?,
-                    updated_at: row.get(4)?,
+                    efforts: row.get(4)?,
+                    updated_at: row.get(5)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
-    pub fn provider_models_replace(&self, provider_id: &str, models: &[(String, Option<String>, Option<i64>)]) -> Result<()> {
+    pub fn provider_models_replace(
+        &self,
+        provider_id: &str,
+        models: &[(String, Option<String>, Option<i64>, Option<String>)],
+    ) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         tx.execute("DELETE FROM provider_models WHERE provider_id = ?1", params![provider_id])?;
         let stamp = now();
-        for (model_id, label, context) in models {
+        for (model_id, label, context, efforts) in models {
             tx.execute(
-                "INSERT INTO provider_models (provider_id, model_id, label, context, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![provider_id, model_id, label, context, stamp],
+                "INSERT INTO provider_models (provider_id, model_id, label, context, efforts, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![provider_id, model_id, label, context, efforts, stamp],
             )?;
         }
         tx.commit()?;

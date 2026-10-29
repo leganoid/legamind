@@ -33,11 +33,13 @@ pub struct ChatParams {
     pub max_tokens: u32,
     pub temperature: f64,
     pub think: bool,
+    /// Уровень рассуждений: off/on для локальных, low/high/max для облачных.
+    pub reasoning: Option<String>,
 }
 
 impl Default for ChatParams {
     fn default() -> Self {
-        Self { max_tokens: 1024, temperature: 0.7, think: false }
+        Self { max_tokens: 1024, temperature: 0.7, think: false, reasoning: None }
     }
 }
 
@@ -53,6 +55,8 @@ pub struct ModelInfo {
     pub thinks: bool,
     /// Предел контекста в токенах (для бюджета и индикатора).
     pub context: Option<u32>,
+    /// Уровни рассуждений от провайдера (например ["low","high","max"]).
+    pub efforts: Vec<String>,
 }
 
 pub struct LocalDef {
@@ -87,6 +91,7 @@ pub fn local_models() -> Vec<ModelInfo> {
             loaded: false,
             thinks: m.thinks,
             context: Some(m.context_tokens),
+            efforts: Vec::new(),
         })
         .collect()
 }
@@ -309,13 +314,18 @@ impl Router<'_> {
         on_delta: &mut (dyn FnMut(&str) + Send),
         on_status: &mut (dyn FnMut(&ChatStatus) + Send),
     ) -> std::result::Result<ChatOutcome, CloudError> {
-        let body = json!({
+        let mut body = json!({
             "model": model,
             "messages": messages,
             "stream": true,
             "max_tokens": params.max_tokens,
             "temperature": params.temperature,
         });
+        if let Some(effort) = params.reasoning.as_deref() {
+            if matches!(effort, "low" | "high" | "max") {
+                body["reasoning_effort"] = json!(effort);
+            }
+        }
         let resp = self
             .state
             .client

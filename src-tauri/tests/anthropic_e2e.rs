@@ -92,7 +92,7 @@ async fn anthropic_stream_is_parsed() {
 
     let router = Router { state: &state };
     let messages = vec![ChatMessage::new("user", "привет")];
-    let params = ChatParams { max_tokens: 32, temperature: 0.3, think: false };
+    let params = ChatParams { max_tokens: 32, temperature: 0.3, think: false, reasoning: None };
     let cancel = AtomicBool::new(false);
     let mut text = String::new();
     let mut deltas = 0;

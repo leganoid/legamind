@@ -20,7 +20,7 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "additionalBrowserArgs": "--disable-gpu"
+        "additionalBrowserArgs": "--disable-gpu --enable-spell-checking --lang=ru"
       }
     ],
     "security": {

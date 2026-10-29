@@ -159,6 +159,56 @@ pub async fn session_set_workdir(
         .ok_or_else(|| "Сессия не найдена".to_string())
 }
 
+/// Смена режима, политики доверия и уровня рассуждений сессии.
+#[tauri::command]
+pub async fn session_set_policy(
+    state: State<'_, AppState>,
+    session_id: String,
+    mode: Option<String>,
+    trust: Option<String>,
+    reasoning: Option<String>,
+) -> Result<Session, String> {
+    state
+        .db
+        .session_get(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Сессия не найдена".to_string())?;
+
+    if let Some(mode) = mode.as_deref() {
+        if !["chat", "plan", "build", "review"].contains(&mode) {
+            return Err("Неизвестный режим".into());
+        }
+        state
+            .db
+            .session_set_policy(&session_id, Some(mode), None, None)
+            .map_err(|e| e.to_string())?;
+    }
+    if let Some(trust) = trust.as_deref() {
+        if !["read_only", "workspace", "full"].contains(&trust) {
+            return Err("Неизвестный уровень доверия".into());
+        }
+        state
+            .db
+            .session_set_policy(&session_id, None, Some(trust), None)
+            .map_err(|e| e.to_string())?;
+    }
+    if let Some(reasoning) = reasoning.as_deref() {
+        if !["auto", "off", "on", "low", "high", "max"].contains(&reasoning) {
+            return Err("Неизвестный уровень рассуждений".into());
+        }
+        let value = if reasoning == "auto" { None } else { Some(reasoning) };
+        state
+            .db
+            .session_set_reasoning(&session_id, value)
+            .map_err(|e| e.to_string())?;
+    }
+    state
+        .db
+        .session_get(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Сессия не найдена".to_string())
+}
+
 /// Открыть папку или файл в проводнике.
 #[tauri::command]
 pub async fn open_path(path: String) -> Result<(), String> {
@@ -209,6 +259,9 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
             workdir: None,
+            mode: "chat".into(),
+            trust: "workspace".into(),
+            reasoning: None,
         };
         init_project(&dir, &session).expect("init");
         assert!(dir.join(".legamind").join("session.json").exists());

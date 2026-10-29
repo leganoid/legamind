@@ -78,7 +78,7 @@ pub async fn fetch_models(
     base_url: &str,
     key: &str,
     timeout_s: i64,
-) -> Result<Vec<(String, Option<String>, Option<i64>)>> {
+) -> Result<Vec<(String, Option<String>, Option<i64>, Option<String>)>> {
     let base = base_url.trim_end_matches('/');
     let (url, request) = if kind == "anthropic" {
         (
@@ -144,7 +144,20 @@ pub async fn fetch_models(
             .or_else(|| item.get("context_window"))
             .or_else(|| item.get("max_context_length"))
             .and_then(|v| v.as_i64());
-        models.push((id, label, context));
+        // Провайдер может рекламировать уровни рассуждений (DeepSeek: effort.supported_levels).
+        let efforts = item
+            .get("effort")
+            .and_then(|v| v.get("supported_levels"))
+            .and_then(|v| v.as_array())
+            .map(|levels| {
+                levels
+                    .iter()
+                    .filter_map(|level| level.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|levels| !levels.is_empty())
+            .map(|levels| serde_json::to_string(&levels).unwrap_or_default());
+        models.push((id, label, context, efforts));
     }
     if models.is_empty() {
         bail!("Сервер ответил, но список моделей пуст");
@@ -256,7 +269,7 @@ pub async fn provider_check(state: State<'_, AppState>, input: ProviderInput) ->
             Ok(CheckResult {
                 ok: true,
                 message: format!("Соединение установлено, моделей: {}", models.len()),
-                models: models.into_iter().map(|(id, _, _)| id).collect(),
+                models: models.into_iter().map(|(id, _, _, _)| id).collect(),
             })
         }
         Err(e) => Ok(CheckResult { ok: false, message: e.to_string(), models: vec![] }),
@@ -287,7 +300,7 @@ pub async fn provider_refresh(state: State<'_, AppState>, id: String) -> Result<
     Ok(CheckResult {
         ok: true,
         message: format!("Модели обновлены: {count}"),
-        models: models.into_iter().map(|(id, _, _)| id).collect(),
+        models: models.into_iter().map(|(id, _, _, _)| id).collect(),
     })
 }
 
@@ -342,6 +355,11 @@ pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, S
                 loaded: false,
                 thinks: false,
                 context: item.context.map(|c| c as u32),
+                efforts: item
+                    .efforts
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
+                    .unwrap_or_default(),
             });
         }
     }

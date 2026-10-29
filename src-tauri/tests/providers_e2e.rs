@@ -97,8 +97,8 @@ async fn provider_models_fetched_from_mock() {
     )
     .await
     .expect("fetch /models");
-    println!("модели мока: {:?}", result.iter().map(|(id, _, _)| id.clone()).collect::<Vec<_>>());
-    assert!(result.iter().any(|(id, _, _)| id == "mock-fast"));
+    println!("модели мока: {:?}", result.iter().map(|(id, _, _, _)| id.clone()).collect::<Vec<_>>());
+    assert!(result.iter().any(|(id, _, _, _)| id == "mock-fast"));
 
     let _ = mock.kill();
     let _ = mock.wait();

@@ -346,7 +346,7 @@ async fn call_model(
         ChatMessage::new("system", "Ты — участник технического обсуждения. Отвечай по-русски, конкретно."),
         ChatMessage::new("user", prompt),
     ];
-    let params = ChatParams { max_tokens, temperature, think: false };
+    let params = ChatParams { max_tokens, temperature, think: false, reasoning: None };
     let router = Router { state };
     let mut on_delta = |text: &str| {
         let _ = app.emit(

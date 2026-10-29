@@ -7,6 +7,9 @@ export interface Session {
   created_at: string;
   updated_at: string;
   workdir: string | null;
+  mode: "chat" | "plan" | "build" | "review";
+  trust: "read_only" | "workspace" | "full";
+  reasoning: string | null;
 }
 
 export interface ChatMessageRow {
@@ -29,6 +32,7 @@ export interface ModelInfo {
   loaded: boolean;
   thinks: boolean;
   context: number | null;
+  efforts: string[];
 }
 
 export interface ProviderView {

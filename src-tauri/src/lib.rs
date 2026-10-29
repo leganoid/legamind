@@ -259,6 +259,7 @@ pub fn run() {
             chat::sources_list,
             workspace::pick_folder,
             workspace::session_set_workdir,
+            workspace::session_set_policy,
             workspace::open_path,
             skills::skills_list,
             skills::skill_save,
