@@ -70,6 +70,23 @@ pub struct ProviderModelRow {
     pub updated_at: String,
 }
 
+/// Навык: набор инструкций, который подмешивается в system-промпт.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillRow {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub role: Option<String>,
+    pub guidelines: Option<String>,
+    pub output_format: Option<String>,
+    pub examples: Option<String>,
+    pub constraints: Option<String>,
+    pub triggers: Option<String>,
+    pub enabled: bool,
+    pub builtin: bool,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebateRow {
     pub id: String,
@@ -223,6 +240,79 @@ impl Db {
                 "#,
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (1)", [])?;
+        }
+
+        if current < 2 {
+            // Навыки: конструктор хранит части отдельно, в промпт собирается блок.
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS skills (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  description TEXT,
+                  role TEXT,
+                  guidelines TEXT,
+                  output_format TEXT,
+                  examples TEXT,
+                  constraints TEXT,
+                  triggers TEXT,
+                  enabled INTEGER NOT NULL DEFAULT 0,
+                  builtin INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
+                "#,
+            )?;
+            let seeded: &[(&str, &str, &str, &str, &str, &str, &str)] = &[
+                (
+                    "Кратко",
+                    "Отвечай максимально сжато: 3–5 предложений, без вступлений и повторов.",
+                    "Ты — предельно лаконичный ассистент.",
+                    "Сформулируй суть в 1–2 предложениях, затем — не более трёх пунктов, если они нужны.",
+                    "1–2 предложения, при необходимости — до трёх коротких пунктов.",
+                    "Не пересказывай вопрос, не добавляй вводных фраз и извинений.",
+                    "",
+                ),
+                (
+                    "Код-ревью",
+                    "Разбор кода: риски, ошибки, улучшения — по приоритету.",
+                    "Ты — строгий, но доброжелательный ревьюер кода.",
+                    "Сначала перечисли реальные проблемы (ошибки, гонки, утечки, безопасность), затем улучшения.\n\
+                     Для каждой проблемы укажи: что не так, почему это важно, как исправить (с примером кода).",
+                    "Список проблем с приоритетами (critical / major / minor), затем итог и готовый исправленный фрагмент.",
+                    "Не придирайся к стилю, если нет функциональной проблемы. Не выдумывай код, которого не видел.",
+                    "",
+                ),
+                (
+                    "Тьютор",
+                    "Объясняй по шагам, проверяй понимание, давай упражнения.",
+                    "Ты — терпеливый преподаватель.",
+                    "Разбей тему на шаги, объясняй простыми словами, после каждого шага задай один проверочный вопрос.\n\
+                     В конце предложи небольшое упражнение.",
+                    "Короткие абзацы, примеры, в конце — упражнение.",
+                    "Не давай сразу полное решение задачи, пока ученик не попробовал сам.",
+                    "",
+                ),
+            ];
+            for (name, description, role, guidelines, output_format, constraints, triggers) in seeded {
+                conn.execute(
+                    "INSERT OR IGNORE INTO skills
+                     (id, name, description, role, guidelines, output_format, examples, constraints, triggers, enabled, builtin, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, 0, 1, ?9)",
+                    params![
+                        new_id(),
+                        name,
+                        description,
+                        role,
+                        guidelines,
+                        output_format,
+                        constraints,
+                        triggers,
+                        now()
+                    ],
+                )?;
+            }
+            conn.execute("INSERT INTO schema_version (version) VALUES (2)", [])?;
         }
         Ok(())
     }
@@ -419,8 +509,7 @@ impl Db {
         Ok(id)
     }
 
-    pub fn provider_model_get(&self, provider_id: &str, model_id: &str) -> Result<Option<ProviderModelRow>> {
-        let conn = self.conn();
+    pub fn provider_model_get(&self, provider_id: &str, model_id: &str) -> Result<Option<ProviderModelRow>> {        let conn = self.conn();
         Ok(conn
             .query_row(
                 "SELECT provider_id, model_id, label, context, updated_at FROM provider_models
@@ -620,6 +709,105 @@ impl Db {
         Ok(())
     }
 
+    /// Удаляет все сообщения сессии (команда /clear и сжатие истории).
+    pub fn messages_delete_all(&self, session_id: &str) -> Result<Vec<String>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id FROM messages WHERE session_id = ?1 ORDER BY rowid")?;
+        let ids = stmt
+            .query_map(params![session_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        conn.execute("DELETE FROM messages WHERE session_id = ?1", params![session_id])?;
+        Ok(ids)
+    }
+
+    // ------------------------------------------------------------------ навыки
+    pub fn skills_list(&self) -> Result<Vec<SkillRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, description, role, guidelines, output_format, examples, constraints,
+                    triggers, enabled, builtin, created_at
+             FROM skills ORDER BY builtin DESC, name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([], map_skill)?.collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn skill_get(&self, id: &str) -> Result<Option<SkillRow>> {
+        let conn = self.conn();
+        Ok(conn
+            .query_row(
+                "SELECT id, name, description, role, guidelines, output_format, examples, constraints,
+                        triggers, enabled, builtin, created_at
+                 FROM skills WHERE id = ?1",
+                params![id],
+                map_skill,
+            )
+            .optional()?)
+    }
+
+    pub fn skill_get_by_name(&self, name: &str) -> Result<Option<SkillRow>> {
+        let conn = self.conn();
+        Ok(conn
+            .query_row(
+                "SELECT id, name, description, role, guidelines, output_format, examples, constraints,
+                        triggers, enabled, builtin, created_at
+                 FROM skills WHERE name = ?1 COLLATE NOCASE",
+                params![name.trim()],
+                map_skill,
+            )
+            .optional()?)
+    }
+
+    pub fn skill_save(&self, row: &SkillRow) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO skills (id, name, description, role, guidelines, output_format, examples,
+                                 constraints, triggers, enabled, builtin, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT(id) DO UPDATE SET
+               name = excluded.name,
+               description = excluded.description,
+               role = excluded.role,
+               guidelines = excluded.guidelines,
+               output_format = excluded.output_format,
+               examples = excluded.examples,
+               constraints = excluded.constraints,
+               triggers = excluded.triggers,
+               enabled = excluded.enabled",
+            params![
+                row.id,
+                row.name,
+                row.description,
+                row.role,
+                row.guidelines,
+                row.output_format,
+                row.examples,
+                row.constraints,
+                row.triggers,
+                row.enabled as i64,
+                row.builtin as i64,
+                row.created_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn skill_delete(&self, id: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute("DELETE FROM skills WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn skill_set_enabled(&self, id: &str, enabled: bool) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE skills SET enabled = ?2 WHERE id = ?1",
+            params![id, enabled as i64],
+        )?;
+        Ok(())
+    }
+
     // ------------------------------------------------------------------ дебаты
     pub fn debate_create(&self, task: &str, participants: &str, rounds: i64, judge: Option<&str>) -> Result<DebateRow> {
         let row = DebateRow {
@@ -805,6 +993,23 @@ fn map_provider(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderRow> {
         enabled: row.get::<_, i64>(5)? != 0,
         timeout_s: row.get(6)?,
         created_at: row.get(7)?,
+    })
+}
+
+fn map_skill(row: &rusqlite::Row<'_>) -> rusqlite::Result<SkillRow> {
+    Ok(SkillRow {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        description: row.get(2)?,
+        role: row.get(3)?,
+        guidelines: row.get(4)?,
+        output_format: row.get(5)?,
+        examples: row.get(6)?,
+        constraints: row.get(7)?,
+        triggers: row.get(8)?,
+        enabled: row.get::<_, i64>(9)? != 0,
+        builtin: row.get::<_, i64>(10)? != 0,
+        created_at: row.get(11)?,
     })
 }
 

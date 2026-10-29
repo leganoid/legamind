@@ -165,6 +165,42 @@ export interface EditStart {
   message: ChatMessageRow;
 }
 
+export interface Skill {
+  id: string;
+  name: string;
+  description: string | null;
+  role: string | null;
+  guidelines: string | null;
+  output_format: string | null;
+  examples: string | null;
+  constraints: string | null;
+  triggers: string | null;
+  enabled: boolean;
+  builtin: boolean;
+  created_at: string;
+  preview: string;
+}
+
+export interface SkillInput {
+  id?: string | null;
+  name: string;
+  description?: string | null;
+  role?: string | null;
+  guidelines?: string | null;
+  output_format?: string | null;
+  examples?: string | null;
+  constraints?: string | null;
+  triggers?: string | null;
+  enabled?: boolean | null;
+}
+
+export interface CommandResult {
+  kind: "notice" | "clear" | "compact" | string;
+  text: string;
+  removed_ids: string[];
+  message: ChatMessageRow | null;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

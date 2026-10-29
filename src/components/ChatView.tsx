@@ -37,6 +37,7 @@ export default function ChatView(props: Props) {
   const [requestId, setRequestId] = createSignal<string | null>(null);
   const [streamText, setStreamText] = createSignal("");
   const [statusText, setStatusText] = createSignal<string | null>(null);
+  const [commandBusy, setCommandBusy] = createSignal(false);
   const [context, setContext] = createSignal<ContextUsage | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -145,7 +146,42 @@ export default function ChatView(props: Props) {
     setError(null);
   };
 
+  const runCommand = async (raw: string) => {
+    const id = activeId();
+    if (!id) {
+      setError("Сначала создайте сессию");
+      return;
+    }
+    const chosen = modelId() || defaultModel();
+    setCommandBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.chatCommand(id, chosen, raw);
+      if (result.kind === "clear") {
+        setMessages([]);
+        setContext(null);
+        setNotice(result.text);
+      } else if (result.kind === "compact") {
+        setMessages(result.message ? [result.message] : []);
+        setNotice(result.text);
+        await refreshContext();
+      } else {
+        setNotice(result.text);
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+
   const send = async (text: string) => {
+    const trimmed = text.trim();
+    if (trimmed.startsWith("/")) {
+      await runCommand(trimmed);
+      return;
+    }
     setError(null);
     setNotice(null);
     let session = activeSession();
@@ -379,6 +415,9 @@ export default function ChatView(props: Props) {
             </button>
           </div>
         </Show>
+        <Show when={commandBusy()}>
+          <div class="banner info">Выполняю команду…</div>
+        </Show>
 
         <div class="messages" ref={scroller}>
           <Show when={messages().length === 0 && !busy()}>
@@ -442,7 +481,9 @@ export default function ChatView(props: Props) {
 
         <Show
           when={editingId() !== null}
-          fallback={<Composer busy={busy()} disabled={false} onSend={send} onStop={stop} />}
+          fallback={
+            <Composer busy={busy()} disabled={commandBusy()} onSend={send} onStop={stop} />
+          }
         >
           <div class="composer edit-composer">
             <textarea

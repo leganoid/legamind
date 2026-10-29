@@ -99,9 +99,13 @@ fn extract_memory_command(text: &str) -> Option<String> {
     None
 }
 
-fn system_prompt(memory_block: Option<String>) -> String {
+fn system_prompt(memory_block: Option<String>, skills_block: Option<String>) -> String {
     let mut system =
         String::from("Ты — Legamind, локальный ассистент для разработки и инженерии. Отвечай по-русски, по делу.");
+    if let Some(skills) = skills_block {
+        system.push_str("\n\n");
+        system.push_str(&skills);
+    }
     if let Some(block) = memory_block {
         system.push_str("\n\n");
         system.push_str(&block);
@@ -152,10 +156,11 @@ async fn build_budgeted_messages(
     model_id: &str,
     history: &[ChatMessageRow],
     memory_block: Option<String>,
+    skills_block: Option<String>,
     reserve: u32,
 ) -> Result<(Vec<ChatMessage>, ContextUsage)> {
     let limit = context_limit(state, model_id);
-    let system = system_prompt(memory_block);
+    let system = system_prompt(memory_block, skills_block);
 
     let dialog: Vec<&ChatMessageRow> = history
         .iter()
@@ -198,8 +203,9 @@ async fn build_budgeted_messages(
 pub(crate) fn build_messages(
     history: &[ChatMessageRow],
     memory_block: Option<String>,
+    skills_block: Option<String>,
 ) -> Vec<ChatMessage> {
-    let mut messages = vec![ChatMessage::new("system", system_prompt(memory_block))];
+    let mut messages = vec![ChatMessage::new("system", system_prompt(memory_block, skills_block))];
     let start = history.len().saturating_sub(HISTORY_LIMIT);
     messages.extend(
         history[start..]
@@ -365,12 +371,14 @@ pub async fn context_usage(
         .map(|m| m.content.clone())
         .unwrap_or_default();
     let memory_block = crate::memory::build_context(&state, &last_user).map_err(|e| e.to_string())?;
+    let skills_block = crate::skills::active_block(&state, &last_user).map_err(|e| e.to_string())?;
     let params = ChatParams::default();
     let (_messages, usage) = build_budgeted_messages(
         &state,
         &model_id,
         &history,
         memory_block,
+        skills_block,
         params.max_tokens.max(MIN_RESERVE),
     )
     .await
@@ -399,11 +407,19 @@ async fn run_chat(
             .map(|m| m.content.clone())
             .unwrap_or_default();
         let memory_block = crate::memory::build_context(&state, &last_user)?;
+        let skills_block = crate::skills::active_block(&state, &last_user)?;
 
         let params = ChatParams::default();
         let reserve = params.max_tokens.max(MIN_RESERVE);
-        let (messages, usage) =
-            build_budgeted_messages(&state, &model_id, &history, memory_block, reserve).await?;
+        let (messages, usage) = build_budgeted_messages(
+            &state,
+            &model_id,
+            &history,
+            memory_block,
+            skills_block,
+            reserve,
+        )
+        .await?;
 
         // Логируем собранный промпт без ключей (требование приёмки M4).
         let prompt_dump = messages
@@ -516,9 +532,297 @@ fn maybe_save_episode(
     let _ = crate::memory::save_episode(state, &text, Some(session_id));
 }
 
+// ------------------------------------------------------------------ слэш-команды
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CommandResult {
+    pub kind: String,
+    pub text: String,
+    pub removed_ids: Vec<String>,
+    pub message: Option<ChatMessageRow>,
+}
+
+fn parse_command(input: &str) -> Option<(String, String)> {
+    let trimmed = input.trim();
+    let rest = trimmed.strip_prefix('/')?;
+    if rest.is_empty() {
+        return None;
+    }
+    let mut parts = rest.splitn(2, char::is_whitespace);
+    let cmd = parts.next().unwrap_or("").to_lowercase();
+    let args = parts.next().unwrap_or("").trim().to_string();
+    Some((cmd, args))
+}
+
+fn notice(text: impl Into<String>) -> Result<CommandResult, String> {
+    Ok(CommandResult {
+        kind: "notice".to_string(),
+        text: text.into(),
+        removed_ids: vec![],
+        message: None,
+    })
+}
+
+pub fn help_text() -> String {
+    [
+        "Команды:",
+        "/help — этот список",
+        "/compact — сжать историю в сводку (освобождает контекст)",
+        "/clear — очистить историю сессии",
+        "/remember <текст> — сохранить факт в память",
+        "/skills — список навыков",
+        "/skill <название> — включить/выключить навык",
+        "/export — выгрузить переписку в .md",
+        "",
+        "Без слэша: «запомни: …» тоже сохраняет факт.",
+    ]
+    .join("\n")
+}
+
+/// Последние сообщения для сводки: не больше 40 реплик и ~12k символов.
+fn compact_transcript(history: &[ChatMessageRow]) -> String {
+    const TOTAL: usize = 12_000;
+    let mut lines: Vec<String> = Vec::new();
+    let mut size = 0usize;
+    for message in history.iter().rev().take(40) {
+        let role = if message.role == "user" { "Пользователь" } else { "Ассистент" };
+        let body: String = message.content.chars().take(1200).collect();
+        let line = format!("{role}: {body}");
+        if size + line.len() > TOTAL {
+            break;
+        }
+        size += line.len() + 2;
+        lines.push(line);
+    }
+    lines.reverse();
+    lines.join("\n\n")
+}
+
+/// Сжатие истории: модель пересказывает диалог, старые сообщения заменяются сводкой.
+/// Сайдкар должен быть уже поднят (это делает `chat_command`).
+pub async fn compact_session(
+    state: &AppState,
+    session_id: &str,
+    model_id: &str,
+) -> Result<CommandResult, String> {
+    if model_id.trim().is_empty() {
+        return Err("Модель не выбрана".into());
+    }
+    let history = state.db.messages_list(session_id).map_err(|e| e.to_string())?;
+    if history.len() < 2 {
+        return Err("История слишком короткая для сжатия".into());
+    }
+    let transcript = compact_transcript(&history);
+
+    let messages = vec![
+        ChatMessage::new(
+            "system",
+            "Ты — редактор, который сжимает диалоги в подробную сводку. Пиши по-русски, только по делу.",
+        ),
+        ChatMessage::new(
+            "user",
+            format!(
+                "Сожми диалог ниже в подробную сводку: сохрани цель, принятые решения, факты, \
+                 незавершённые задачи и важные детали. Не выдумывай. Верни только текст сводки.\n\n\
+                 ---\n{transcript}\n---\n\nСводка:"
+            ),
+        ),
+    ];
+    let params = ChatParams { max_tokens: 900, temperature: 0.3, think: false };
+    let cancel = Arc::new(AtomicBool::new(false));
+    let router = Router { state };
+    let outcome = router
+        .stream(
+            model_id,
+            &messages,
+            &params,
+            &cancel,
+            &mut |_| {},
+            &mut |_: &ChatStatus| {},
+        )
+        .await
+        .map_err(|e| format!("Не удалось сжать историю: {e}"))?;
+
+    let summary = outcome.text.trim().to_string();
+    if summary.is_empty() {
+        return Err("Модель не вернула сводку".into());
+    }
+
+    let removed_ids = state
+        .db
+        .messages_delete_all(session_id)
+        .map_err(|e| e.to_string())?;
+    let content = format!("📝 **Сводка прошлого диалога** (история сжата)\n\n{summary}");
+    let message = state
+        .db
+        .message_add(
+            session_id,
+            "assistant",
+            &content,
+            Some(model_id),
+            Some(outcome.tokens as i64),
+        )
+        .map_err(|e| e.to_string())?;
+    let _ = state.db.session_touch(session_id);
+    let _ = crate::memory::save_episode(
+        state,
+        &format!("Сжатие диалога: {}", summary.chars().take(300).collect::<String>()),
+        Some(session_id),
+    );
+    log_line(
+        "prompts.log",
+        &format!(
+            "=== compact {session_id} model={model_id} tokens={} compressed={}\n{transcript}",
+            outcome.tokens,
+            removed_ids.len()
+        ),
+    );
+
+    Ok(CommandResult {
+        kind: "compact".to_string(),
+        text: format!("История сжата: удалено {} → осталась одна сводка", removed_ids.len()),
+        removed_ids,
+        message: Some(message),
+    })
+}
+
+fn export_session(
+    db: &crate::db::Db,
+    data_dir: &std::path::Path,
+    session_id: &str,
+) -> Result<CommandResult, String> {
+    let session = db
+        .session_get(session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Сессия не найдена".to_string())?;
+    let history = db.messages_list(session_id).map_err(|e| e.to_string())?;
+    if history.is_empty() {
+        return Err("В сессии нет сообщений".into());
+    }
+    let mut md = format!("# Чат «{}»\n\n_{}_\n\n", session.title, session.created_at);
+    for message in &history {
+        let who = if message.role == "user" {
+            "Вы".to_string()
+        } else {
+            message
+                .model_id
+                .as_deref()
+                .and_then(crate::models::local_label)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Ассистент".to_string())
+        };
+        md.push_str(&format!("## {who}\n\n{}\n\n", message.content));
+    }
+    let dir = data_dir.join("exports");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("chat-{session_id}.md"));
+    std::fs::write(&path, md).map_err(|e| e.to_string())?;
+    notice(format!("Экспортировано: {}", path.display()))
+}
+
+/// Команды, которым не нужна модель: help/clear/remember/skills/skill/export.
+/// Возвращает `None`, если команда требует генерации (`/compact`) или неизвестна.
+pub fn local_command(
+    db: &crate::db::Db,
+    data_dir: &std::path::Path,
+    session_id: &str,
+    cmd: &str,
+    args: &str,
+) -> Result<Option<CommandResult>, String> {
+    match cmd {
+        "help" => Ok(Some(notice(help_text())?)),
+        "clear" => {
+            let removed_ids = db
+                .messages_delete_all(session_id)
+                .map_err(|e| e.to_string())?;
+            Ok(Some(CommandResult {
+                kind: "clear".to_string(),
+                text: format!("История очищена: удалено {}", removed_ids.len()),
+                removed_ids,
+                message: None,
+            }))
+        }
+        "remember" => {
+            if args.is_empty() {
+                return Err("Использование: /remember <текст>".into());
+            }
+            db.memory_add("fact", args, Some(session_id))
+                .map_err(|e| e.to_string())?;
+            Ok(Some(notice(format!("Запомнил: {args}"))?))
+        }
+        "skills" => {
+            let skills = db.skills_list().map_err(|e| e.to_string())?;
+            if skills.is_empty() {
+                return Ok(Some(notice("Навыков нет. Создайте их на экране «Скиллы».")?));
+            }
+            let mut lines = vec!["Навыки:".to_string()];
+            for skill in &skills {
+                let mark = if skill.enabled { "✅" } else { "⬜" };
+                let description = skill.description.clone().unwrap_or_default();
+                let suffix = if description.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {description}")
+                };
+                lines.push(format!("{mark} {}{suffix}", skill.name));
+            }
+            lines.push(String::new());
+            lines.push("Включить/выключить: /skill <название>".to_string());
+            Ok(Some(notice(lines.join("\n"))?))
+        }
+        "skill" => {
+            if args.is_empty() {
+                return Err("Использование: /skill <название>".into());
+            }
+            let skill = crate::skills::toggle_by_name(db, args)?;
+            Ok(Some(notice(format!(
+                "Навык «{}» {}",
+                skill.name,
+                if skill.enabled { "включён" } else { "выключен" }
+            ))?))
+        }
+        "export" => Ok(Some(export_session(db, data_dir, session_id)?)),
+        _ => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub async fn chat_command(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    model_id: String,
+    input: String,
+) -> Result<CommandResult, String> {
+    state
+        .db
+        .session_get(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Сессия не найдена".to_string())?;
+
+    let (cmd, args) = parse_command(&input)
+        .ok_or_else(|| "Команда должна начинаться с «/». Список: /help".to_string())?;
+
+    if let Some(result) = local_command(&state.db, &state.data_dir, &session_id, &cmd, &args)? {
+        return Ok(result);
+    }
+
+    match cmd.as_str() {
+        "compact" => {
+            if model_id.starts_with("local/") {
+                crate::sidecar::ensure_ready(&app)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            compact_session(&state, &session_id, &model_id).await
+        }
+        other => Err(format!("Неизвестная команда «/{other}». /help — список команд")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_messages, extract_memory_command, fit_window};
+    use super::{build_messages, compact_transcript, extract_memory_command, fit_window, parse_command};
     use crate::db::ChatMessageRow;
 
     #[test]
@@ -550,11 +854,28 @@ mod tests {
             "Известное о проекте (используй, если релевантно):\n- в binres используется JFFS2"
                 .to_string(),
         );
-        let messages = build_messages(&history, block);
+        let messages = build_messages(&history, block, None);
         assert_eq!(messages[0].role, "system");
         assert!(messages[0].content.contains("Известное о проекте"), "{}", messages[0].content);
         assert!(messages[0].content.contains("JFFS2"), "{}", messages[0].content);
         assert_eq!(messages.last().unwrap().content, history[0].content);
+    }
+
+    #[test]
+    fn skills_block_lands_in_system_prompt() {
+        let history = vec![ChatMessageRow {
+            id: "m1".into(),
+            session_id: "s1".into(),
+            role: "user".into(),
+            content: "привет".into(),
+            model_id: None,
+            tokens: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+        }];
+        let skills = Some("Активные навыки (следуй им):\n### Кратко\nОтвечай сжато.".to_string());
+        let messages = build_messages(&history, None, skills);
+        assert!(messages[0].content.contains("Активные навыки"), "{}", messages[0].content);
+        assert!(messages[0].content.contains("Отвечай сжато"), "{}", messages[0].content);
     }
 
     #[test]
@@ -577,5 +898,81 @@ mod tests {
         let (start, used) = fit_window(5000, &[100, 9000], 4096, 512);
         assert_eq!(start, 1, "последнее сообщение не выбрасываем");
         assert_eq!(used, 14000, "в промпт уйдёт system + последнее сообщение");
+    }
+
+    #[test]
+    fn slash_commands_are_parsed() {
+        assert_eq!(parse_command("/compact"), Some(("compact".into(), "".into())));
+        assert_eq!(
+            parse_command("/skill  Кратко "),
+            Some(("skill".into(), "Кратко".into()))
+        );
+        assert_eq!(parse_command("обычный текст"), None);
+        assert_eq!(parse_command("/"), None);
+    }
+
+    #[test]
+    fn local_commands_work_on_db() {
+        use crate::chat::local_command;
+
+        let db = crate::db::Db::open_memory().unwrap();
+        let session = db.session_create("s", "local/qwen-1.5b").unwrap();
+        db.message_add(&session.id, "user", "привет", None, None).unwrap();
+        db.message_add(&session.id, "assistant", "здравствуйте", None, None).unwrap();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("commands");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let help = local_command(&db, &dir, &session.id, "help", "").unwrap().unwrap();
+        assert!(help.text.contains("/compact"), "{}", help.text);
+
+        let remember = local_command(&db, &dir, &session.id, "remember", "в binres JFFS2")
+            .unwrap()
+            .unwrap();
+        assert!(remember.text.contains("Запомнил"));
+        assert!(db.memories_list(10).unwrap().iter().any(|m| m.text.contains("JFFS2")));
+
+        let skills = local_command(&db, &dir, &session.id, "skills", "").unwrap().unwrap();
+        assert!(skills.text.contains("Навыки"), "{}", skills.text);
+
+        let toggled = local_command(&db, &dir, &session.id, "skill", "Кратко").unwrap().unwrap();
+        assert!(toggled.text.contains("включён"), "{}", toggled.text);
+
+        let export = local_command(&db, &dir, &session.id, "export", "").unwrap().unwrap();
+        assert!(export.text.contains("Экспортировано"), "{}", export.text);
+
+        let cleared = local_command(&db, &dir, &session.id, "clear", "").unwrap().unwrap();
+        assert_eq!(cleared.removed_ids.len(), 2);
+        assert!(db.messages_list(&session.id).unwrap().is_empty());
+
+        // /compact требует модель — обрабатывается отдельно в chat_command.
+        assert!(local_command(&db, &dir, &session.id, "compact", "").unwrap().is_none());
+        // Неизвестная команда тоже уходит в общий обработчик.
+        assert!(local_command(&db, &dir, &session.id, "nope", "").unwrap().is_none());
+    }
+
+    #[test]
+    fn compact_transcript_keeps_tail() {        let mut history = Vec::new();
+        for i in 0..50 {
+            history.push(ChatMessageRow {
+                id: format!("m{i}"),
+                session_id: "s".into(),
+                role: if i % 2 == 0 { "user".into() } else { "assistant".into() },
+                content: format!("сообщение {i}"),
+                model_id: None,
+                tokens: None,
+                created_at: "2026-01-01T00:00:00Z".into(),
+            });
+        }
+        let transcript = compact_transcript(&history);
+        assert!(transcript.contains("сообщение 49"), "хвост должен остаться");
+        let entries = transcript
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count();
+        assert!(entries <= 40, "реплик слишком много: {entries}");
+        assert!(transcript.len() <= 12_400);
     }
 }

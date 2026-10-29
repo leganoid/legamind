@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 
 interface Props {
   busy: boolean;
@@ -7,10 +7,32 @@ interface Props {
   onStop: () => void;
 }
 
+interface CommandHint {
+  cmd: string;
+  description: string;
+  needsArg?: boolean;
+}
+
+const COMMANDS: CommandHint[] = [
+  { cmd: "/compact", description: "сжать историю в сводку" },
+  { cmd: "/clear", description: "очистить историю сессии" },
+  { cmd: "/remember", description: "сохранить факт в память", needsArg: true },
+  { cmd: "/skills", description: "список навыков" },
+  { cmd: "/skill", description: "включить/выключить навык", needsArg: true },
+  { cmd: "/export", description: "экспорт переписки в .md" },
+  { cmd: "/help", description: "список команд" },
+];
+
 /** Ввод: Enter — отправить, Shift+Enter — перенос, Ctrl+Enter — тоже отправить. */
 export default function Composer(props: Props) {
   const [text, setText] = createSignal("");
   let inputRef: HTMLTextAreaElement | undefined;
+
+  const hints = createMemo(() => {
+    const value = text();
+    if (!value.startsWith("/") || value.includes("\n") || value.includes(" ")) return [];
+    return COMMANDS.filter((hint) => hint.cmd.startsWith(value));
+  });
 
   const submit = () => {
     const value = text().trim();
@@ -21,6 +43,10 @@ export default function Composer(props: Props) {
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      setText("");
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       submit();
@@ -33,12 +59,29 @@ export default function Composer(props: Props) {
     el.style.height = Math.min(el.scrollHeight, 220) + "px";
   };
 
+  const useHint = (hint: CommandHint) => {
+    setText(hint.needsArg ? `${hint.cmd} ` : `${hint.cmd} `);
+    inputRef?.focus();
+  };
+
   return (
     <div class="composer">
+      <Show when={hints().length > 0}>
+        <div class="command-hints">
+          <For each={hints()}>
+            {(hint) => (
+              <button class="command-hint" onClick={() => useHint(hint)}>
+                <span class="command-name">{hint.cmd}</span>
+                <span class="muted small">{hint.description}</span>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
       <textarea
         ref={inputRef}
         value={text()}
-        placeholder="Сообщение… (Enter — отправить, Shift+Enter — перенос)"
+        placeholder="Сообщение… (Enter — отправить, Shift+Enter — перенос, /help — команды)"
         rows={2}
         disabled={props.disabled}
         onInput={(e) => {

@@ -9,6 +9,7 @@ pub mod models;
 pub mod providers;
 pub mod secrets;
 pub mod sidecar;
+pub mod skills;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -251,6 +252,11 @@ pub fn run() {
             chat::chat_regenerate,
             chat::chat_edit_and_resend,
             chat::context_usage,
+            chat::chat_command,
+            skills::skills_list,
+            skills::skill_save,
+            skills::skill_delete,
+            skills::skill_set_enabled,
             models_load,
             models_unload,
             engine_restart,

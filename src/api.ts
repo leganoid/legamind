@@ -5,6 +5,7 @@ import type {
   ChatMessageRow,
   ChatStart,
   CheckResult,
+  CommandResult,
   ContextUsage,
   DebateDetail,
   DebateRow,
@@ -17,6 +18,8 @@ import type {
   ProviderView,
   RegenStart,
   Session,
+  Skill,
+  SkillInput,
 } from "./types";
 
 export const api = {
@@ -44,6 +47,15 @@ export const api = {
     invoke<EditStart>("chat_edit_and_resend", { sessionId, messageId, content, modelId }),
   contextUsage: (sessionId: string, modelId: string) =>
     invoke<ContextUsage>("context_usage", { sessionId, modelId }),
+
+  chatCommand: (sessionId: string, modelId: string, input: string) =>
+    invoke<CommandResult>("chat_command", { sessionId, modelId, input }),
+
+  skillsList: () => invoke<Skill[]>("skills_list"),
+  skillSave: (input: SkillInput) => invoke<Skill>("skill_save", { input }),
+  skillDelete: (id: string) => invoke<void>("skill_delete", { id }),
+  skillSetEnabled: (id: string, enabled: boolean) =>
+    invoke<void>("skill_set_enabled", { id, enabled }),
 
   providersList: () => invoke<ProviderView[]>("providers_list"),
   providerSave: (input: ProviderInput) => invoke<ProviderView>("provider_save", { input }),

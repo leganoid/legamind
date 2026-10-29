@@ -7,8 +7,9 @@ import ModelsView from "./components/ModelsView";
 import Providers from "./components/Providers";
 import MemoryPanel from "./components/MemoryPanel";
 import SettingsView from "./components/SettingsView";
+import SkillsView from "./components/SkillsView";
 
-type View = "chat" | "debate" | "models" | "providers" | "memory" | "settings";
+type View = "chat" | "debate" | "models" | "providers" | "memory" | "skills" | "settings";
 
 const NAV: { key: View; label: string; icon: string }[] = [
   { key: "chat", label: "Чат", icon: "💬" },
@@ -16,6 +17,7 @@ const NAV: { key: View; label: string; icon: string }[] = [
   { key: "models", label: "Модели", icon: "🧩" },
   { key: "providers", label: "Провайдеры", icon: "🔑" },
   { key: "memory", label: "Память", icon: "🧠" },
+  { key: "skills", label: "Скиллы", icon: "🧰" },
   { key: "settings", label: "Настройки", icon: "⚙" },
 ];
 
@@ -101,6 +103,9 @@ export default function App() {
         </Show>
         <Show when={view() === "memory"}>
           <MemoryPanel />
+        </Show>
+        <Show when={view() === "skills"}>
+          <SkillsView />
         </Show>
         <Show when={view() === "settings"}>
           <SettingsView />

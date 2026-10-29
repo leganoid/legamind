@@ -178,6 +178,42 @@ async fn local_model_streams_through_router() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "требует OpenVINO-модели и venv; запускать вручную"]
+async fn compact_replaces_history_with_summary() {
+    let engine = start_engine();
+    let (state, _db_path) = make_state(engine.port);
+    let session = state
+        .db
+        .session_create("Тест сжатия", "local/qwen-1.5b")
+        .expect("сессия");
+    let dialog = [
+        ("user", "Мы проектируем формат хранения дампов прошивки."),
+        ("assistant", "Предлагаю заголовок: magic, version, размер, CRC32."),
+        ("user", "Нужно ли сжатие?"),
+        ("assistant", "Да, zstd быстрее и лучше жмёт, чем gzip."),
+        ("user", "Решили: little-endian и zstd."),
+        ("assistant", "Записал: little-endian, zstd, CRC32 в конце."),
+    ];
+    for (role, content) in dialog {
+        state
+            .db
+            .message_add(&session.id, role, content, Some("local/qwen-1.5b"), None)
+            .expect("сообщение");
+    }
+
+    let result = legamind_lib::chat::compact_session(&state, &session.id, "local/qwen-1.5b")
+        .await
+        .expect("сжатие истории");
+
+    println!("compact: kind={} text={} removed={}", result.kind, result.text, result.removed_ids.len());
+    let messages = state.db.messages_list(&session.id).expect("сообщения");
+    assert_eq!(result.kind, "compact");
+    assert_eq!(messages.len(), 1, "должна остаться одна сводка");
+    assert!(messages[0].content.contains("Сводка"), "{}", messages[0].content);
+    assert!(result.removed_ids.len() == dialog.len());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "требует OpenVINO-модели и venv; запускать вручную"]
 async fn stop_flag_aborts_generation() {
     let engine = start_engine();
     let (state, _db_path) = make_state(engine.port);
