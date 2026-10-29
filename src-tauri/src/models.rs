@@ -51,6 +51,8 @@ pub struct ModelInfo {
     pub size_gb: Option<f64>,
     pub loaded: bool,
     pub thinks: bool,
+    /// Предел контекста в токенах (для бюджета и индикатора).
+    pub context: Option<u32>,
 }
 
 pub struct LocalDef {
@@ -59,14 +61,17 @@ pub struct LocalDef {
     pub device: &'static str,
     pub size_gb: f64,
     pub thinks: bool,
+    pub context_tokens: u32,
 }
 
 /// Реестр локальных моделей — синхронизирован с `engine/registry.py`.
+/// `context_tokens` — сколько токенов промпта реально принимает пайплайн.
 pub const LOCAL_MODELS: &[LocalDef] = &[
-    LocalDef { id: "qwen3-14b", label: "Qwen3-14B", device: "GPU", size_gb: 9.06, thinks: true },
-    LocalDef { id: "coder-30b", label: "Qwen3-Coder-30B-A3B", device: "GPU", size_gb: 15.2, thinks: false },
-    LocalDef { id: "coder-7b", label: "Qwen2.5-Coder-7B", device: "GPU", size_gb: 4.2, thinks: false },
-    LocalDef { id: "qwen-1.5b", label: "Qwen2.5-1.5B", device: "NPU", size_gb: 0.87, thinks: false },
+    LocalDef { id: "qwen3-14b", label: "Qwen3-14B", device: "GPU", size_gb: 9.06, thinks: true, context_tokens: 32768 },
+    LocalDef { id: "coder-30b", label: "Qwen3-Coder-30B-A3B", device: "GPU", size_gb: 15.2, thinks: false, context_tokens: 65536 },
+    LocalDef { id: "coder-7b", label: "Qwen2.5-Coder-7B", device: "GPU", size_gb: 4.2, thinks: false, context_tokens: 32768 },
+    // NPU-пайплайн ограничен MAX_PROMPT_LEN=4096 (см. engine/manager.py)
+    LocalDef { id: "qwen-1.5b", label: "Qwen2.5-1.5B", device: "NPU", size_gb: 0.87, thinks: false, context_tokens: 4096 },
 ];
 
 pub fn local_models() -> Vec<ModelInfo> {
@@ -81,8 +86,14 @@ pub fn local_models() -> Vec<ModelInfo> {
             size_gb: Some(m.size_gb),
             loaded: false,
             thinks: m.thinks,
+            context: Some(m.context_tokens),
         })
         .collect()
+}
+
+pub fn local_context_tokens(model_id: &str) -> Option<u32> {
+    let short = model_id.strip_prefix("local/").unwrap_or(model_id);
+    LOCAL_MODELS.iter().find(|m| m.id == short).map(|m| m.context_tokens)
 }
 
 pub fn local_label(model_id: &str) -> Option<&'static str> {
@@ -96,6 +107,63 @@ pub struct ChatOutcome {
     pub tokens: u32,
     pub seconds: f64,
     pub stopped: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatStatus {
+    pub phase: String,
+    pub label: Option<String>,
+    pub device: Option<String>,
+    pub seconds: Option<f64>,
+}
+
+/// Грубая оценка длины текста в токенах — для облачных моделей, где нет нашего
+/// токенизатора. Кириллица «дороже» латиницы примерно в 1,5 раза.
+pub fn estimate_tokens(text: &str) -> u32 {
+    let mut ascii = 0f64;
+    let mut cyrillic = 0f64;
+    let mut other = 0f64;
+    for ch in text.chars() {
+        if ch.is_ascii() {
+            ascii += 1.0;
+        } else if ch.is_alphabetic() {
+            cyrillic += 1.0;
+        } else {
+            other += 1.0;
+        }
+    }
+    ((ascii / 3.8) + (cyrillic / 2.3) + (other / 2.0)).ceil() as u32
+}
+
+/// Точная длина текстов в токенах для локальной модели (через сайдкар).
+pub async fn count_local_tokens(
+    state: &AppState,
+    model_id: &str,
+    texts: &[String],
+) -> Result<Vec<u32>> {
+    let base = state.engine_base().await?;
+    let short = model_id.strip_prefix("local/").unwrap_or(model_id);
+    let resp = state
+        .client
+        .post(format!("{base}/tokenize"))
+        .json(&json!({ "model": short, "texts": texts }))
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await
+        .map_err(|e| anyhow!("Не удалось посчитать токены: {e}"))?;
+    if !resp.status().is_success() {
+        bail!("Сайдкар не посчитал токены ({})", resp.status());
+    }
+    let value: Value = resp.json().await.map_err(|e| anyhow!("Некорректный ответ /tokenize: {e}"))?;
+    let counts = value
+        .get("counts")
+        .and_then(|c| c.as_array())
+        .map(|items| items.iter().filter_map(|v| v.as_u64()).map(|v| v as u32).collect::<Vec<_>>())
+        .unwrap_or_default();
+    if counts.len() != texts.len() {
+        bail!("Сайдкар вернул {} счётчиков на {} текстов", counts.len(), texts.len());
+    }
+    Ok(counts)
 }
 
 pub struct Router<'a> {
@@ -117,12 +185,13 @@ impl Router<'_> {
         params: &ChatParams,
         cancel: &AtomicBool,
         on_delta: &mut (dyn FnMut(&str) + Send),
+        on_status: &mut (dyn FnMut(&ChatStatus) + Send),
     ) -> Result<ChatOutcome> {
         let (provider, model) = split_model(model_id)?;
         if provider == LOCAL_PREFIX {
-            self.stream_local(model, messages, params, cancel, on_delta).await
+            self.stream_local(model, messages, params, cancel, on_delta, on_status).await
         } else {
-            self.stream_cloud(provider, model, messages, params, cancel, on_delta).await
+            self.stream_cloud(provider, model, messages, params, cancel, on_delta, on_status).await
         }
     }
 
@@ -134,6 +203,7 @@ impl Router<'_> {
         params: &ChatParams,
         cancel: &AtomicBool,
         on_delta: &mut (dyn FnMut(&str) + Send),
+        on_status: &mut (dyn FnMut(&ChatStatus) + Send),
     ) -> Result<ChatOutcome> {
         let base = self.state.engine_base().await?;
         let body = json!({
@@ -162,7 +232,7 @@ impl Router<'_> {
                 .unwrap_or_else(|| format!("Ошибка сайдкара ({status})"));
             bail!(msg);
         }
-        self.consume_openai_stream(resp, cancel, on_delta, None).await
+        self.consume_openai_stream(resp, cancel, on_delta, on_status, None).await
     }
 
     // ------------------------------------------------------------------ облачные
@@ -174,6 +244,7 @@ impl Router<'_> {
         params: &ChatParams,
         cancel: &AtomicBool,
         on_delta: &mut (dyn FnMut(&str) + Send),
+        on_status: &mut (dyn FnMut(&ChatStatus) + Send),
     ) -> Result<ChatOutcome> {
         let provider = self
             .state
@@ -190,16 +261,26 @@ impl Router<'_> {
         let timeout = Duration::from_secs(provider.timeout_s.max(10) as u64);
 
         let mut attempt = 0;
+        on_status(&ChatStatus {
+            phase: "connecting".to_string(),
+            label: Some(provider.label.clone()),
+            device: None,
+            seconds: None,
+        });
         loop {
             attempt += 1;
             let result = match provider.kind.as_str() {
                 "anthropic" => {
-                    self.call_anthropic(&base, model, &key, messages, params, timeout, cancel, on_delta)
-                        .await
+                    self.call_anthropic(
+                        &base, model, &key, messages, params, timeout, cancel, on_delta, on_status,
+                    )
+                    .await
                 }
                 _ => {
-                    self.call_openai_compatible(&base, model, &key, messages, params, timeout, cancel, on_delta)
-                        .await
+                    self.call_openai_compatible(
+                        &base, model, &key, messages, params, timeout, cancel, on_delta, on_status,
+                    )
+                    .await
                 }
             };
             match result {
@@ -226,6 +307,7 @@ impl Router<'_> {
         timeout: Duration,
         cancel: &AtomicBool,
         on_delta: &mut (dyn FnMut(&str) + Send),
+        on_status: &mut (dyn FnMut(&ChatStatus) + Send),
     ) -> std::result::Result<ChatOutcome, CloudError> {
         let body = json!({
             "model": model,
@@ -247,7 +329,7 @@ impl Router<'_> {
             .map_err(|e| CloudError::Other(anyhow!(network_error(e))))?;
 
         check_status(resp.status())?;
-        self.consume_openai_stream(resp, cancel, on_delta, Some(model.to_string()))
+        self.consume_openai_stream(resp, cancel, on_delta, on_status, Some(model.to_string()))
             .await
             .map_err(CloudError::Other)
     }
@@ -263,6 +345,7 @@ impl Router<'_> {
         timeout: Duration,
         cancel: &AtomicBool,
         on_delta: &mut (dyn FnMut(&str) + Send),
+        on_status: &mut (dyn FnMut(&ChatStatus) + Send),
     ) -> std::result::Result<ChatOutcome, CloudError> {
         let system: String = messages
             .iter()
@@ -299,7 +382,7 @@ impl Router<'_> {
             .map_err(|e| CloudError::Other(anyhow!(network_error(e))))?;
 
         check_status(resp.status())?;
-        self.consume_anthropic_stream(resp, cancel, on_delta)
+        self.consume_anthropic_stream(resp, cancel, on_delta, on_status)
             .await
             .map_err(CloudError::Other)
     }
@@ -310,6 +393,7 @@ impl Router<'_> {
         resp: reqwest::Response,
         cancel: &AtomicBool,
         on_delta: &mut (dyn FnMut(&str) + Send),
+        on_status: &mut (dyn FnMut(&ChatStatus) + Send),
         _model: Option<String>,
     ) -> Result<ChatOutcome> {
         let started = Instant::now();
@@ -340,6 +424,16 @@ impl Router<'_> {
                     let Ok(value) = serde_json::from_str::<Value>(data) else { continue };
                     if let Some(err) = value.get("error") {
                         bail!("Ошибка провайдера: {}", error_text(err));
+                    }
+                    // Статусы сайдкара: loading / ready / generating.
+                    if let Some(phase) = value.get("status").and_then(|v| v.as_str()) {
+                        on_status(&ChatStatus {
+                            phase: phase.to_string(),
+                            label: value.get("label").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            device: value.get("device").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            seconds: value.get("seconds").and_then(|v| v.as_f64()),
+                        });
+                        continue;
                     }
                     // Формат сайдкара: {"delta": "..."} и финальный {"done": true, "tokens": N}.
                     if let Some(delta) = value.get("delta").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
@@ -383,6 +477,7 @@ impl Router<'_> {
         resp: reqwest::Response,
         cancel: &AtomicBool,
         on_delta: &mut (dyn FnMut(&str) + Send),
+        _on_status: &mut (dyn FnMut(&ChatStatus) + Send),
     ) -> Result<ChatOutcome> {
         let started = Instant::now();
         let mut stream = resp.bytes_stream();
@@ -521,5 +616,21 @@ mod tests {
     fn local_label_lookup() {
         assert_eq!(local_label("local/qwen3-14b"), Some("Qwen3-14B"));
         assert_eq!(local_label("local/unknown"), None);
+    }
+
+    #[test]
+    fn local_context_limits() {
+        assert_eq!(local_context_tokens("local/qwen-1.5b"), Some(4096));
+        assert_eq!(local_context_tokens("local/qwen3-14b"), Some(32768));
+        assert_eq!(local_context_tokens("openai/gpt-4o"), None);
+    }
+
+    #[test]
+    fn estimate_tokens_grows_with_text() {
+        assert_eq!(estimate_tokens(""), 0);
+        assert!(estimate_tokens("hello world") >= 2);
+        let ru = estimate_tokens("Привет, мир! Это проверка оценки токенов.");
+        let en = estimate_tokens("Hello, world! This is a token estimate check.");
+        assert!(ru > en, "кириллица должна оцениваться дороже: {ru} vs {en}");
     }
 }

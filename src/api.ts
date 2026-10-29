@@ -5,14 +5,17 @@ import type {
   ChatMessageRow,
   ChatStart,
   CheckResult,
+  ContextUsage,
   DebateDetail,
   DebateRow,
   DebateStartResult,
+  EditStart,
   MemoryRow,
   ModelInfo,
   ProviderInput,
   ProviderModelRow,
   ProviderView,
+  RegenStart,
   Session,
 } from "./types";
 
@@ -35,6 +38,12 @@ export const api = {
   chatSend: (sessionId: string, content: string, modelId: string) =>
     invoke<ChatStart>("chat_send", { sessionId, content, modelId }),
   chatStop: (requestId: string) => invoke<void>("chat_stop", { requestId }),
+  chatRegenerate: (sessionId: string, modelId: string) =>
+    invoke<RegenStart>("chat_regenerate", { sessionId, modelId }),
+  chatEditAndResend: (sessionId: string, messageId: string, content: string, modelId: string) =>
+    invoke<EditStart>("chat_edit_and_resend", { sessionId, messageId, content, modelId }),
+  contextUsage: (sessionId: string, modelId: string) =>
+    invoke<ContextUsage>("context_usage", { sessionId, modelId }),
 
   providersList: () => invoke<ProviderView[]>("providers_list"),
   providerSave: (input: ProviderInput) => invoke<ProviderView>("provider_save", { input }),

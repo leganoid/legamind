@@ -10,9 +10,15 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      // Игнорируем служебные каталоги сборки и временные файлы редакторов:
+      // Служебные каталоги сборки и временные файлы редакторов не смотрим:
       // watcher падает с EBUSY на заблокированных .tmp внутри workspace.
-      ignored: ["**/src-tauri/**", "**/engine/**", "**/*.tmpdir/**", "**/*.tmp"],
+      ignored: (path: string) =>
+        path.includes("node_modules") ||
+        path.includes("src-tauri") ||
+        path.includes("/engine/") ||
+        path.includes("\\engine\\") ||
+        path.includes(".tmpdir") ||
+        path.endsWith(".tmp"),
     },
   },
   build: {

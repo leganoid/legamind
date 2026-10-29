@@ -369,6 +369,76 @@ impl Db {
         Ok(message)
     }
 
+    pub fn message_delete(&self, id: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Удаляет сообщение и все последующие в сессии. Возвращает id удалённых.
+    pub fn messages_delete_from(&self, session_id: &str, id: &str) -> Result<Vec<String>> {
+        let conn = self.conn();
+        let rowid: Option<i64> = conn
+            .query_row(
+                "SELECT rowid FROM messages WHERE id = ?1 AND session_id = ?2",
+                params![id, session_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(rowid) = rowid else {
+            return Ok(vec![]);
+        };
+        let mut stmt = conn.prepare(
+            "SELECT id FROM messages WHERE session_id = ?1 AND rowid >= ?2 ORDER BY rowid",
+        )?;
+        let ids = stmt
+            .query_map(params![session_id, rowid], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        conn.execute(
+            "DELETE FROM messages WHERE session_id = ?1 AND rowid >= ?2",
+            params![session_id, rowid],
+        )?;
+        Ok(ids)
+    }
+
+    /// Удаляет последний ответ ассистента (для перегенерации).
+    pub fn message_delete_last_assistant(&self, session_id: &str) -> Result<Option<String>> {
+        let conn = self.conn();
+        let id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM messages WHERE session_id = ?1 AND role = 'assistant'
+                 ORDER BY rowid DESC LIMIT 1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(ref id) = id {
+            conn.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+        }
+        Ok(id)
+    }
+
+    pub fn provider_model_get(&self, provider_id: &str, model_id: &str) -> Result<Option<ProviderModelRow>> {
+        let conn = self.conn();
+        Ok(conn
+            .query_row(
+                "SELECT provider_id, model_id, label, context, updated_at FROM provider_models
+                 WHERE provider_id = ?1 AND model_id = ?2",
+                params![provider_id, model_id],
+                |row| {
+                    Ok(ProviderModelRow {
+                        provider_id: row.get(0)?,
+                        model_id: row.get(1)?,
+                        label: row.get(2)?,
+                        context: row.get(3)?,
+                        updated_at: row.get(4)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
     // ------------------------------------------------------------------ память
     pub fn memory_add(&self, kind: &str, text: &str, source_session: Option<&str>) -> Result<MemoryRow> {
         let row = MemoryRow {

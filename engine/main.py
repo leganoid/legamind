@@ -18,7 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from .manager import ModelError, ModelManager
+from .manager import ModelError, ModelManager, TokenizerCache
 from .prompts import apply_think, with_default_system
 from .registry import Registry
 
@@ -40,6 +40,11 @@ class ModelIdRequest(BaseModel):
     id: str
 
 
+class TokenizeRequest(BaseModel):
+    model: str
+    texts: list[str] = Field(default_factory=list)
+
+
 class EmbeddingsRequest(BaseModel):
     model: str
     texts: list[str] = Field(default_factory=list)
@@ -48,6 +53,7 @@ class EmbeddingsRequest(BaseModel):
 def create_app(registry: Registry) -> FastAPI:
     app = FastAPI(title="legamind-engine", docs_url=None, redoc_url=None)
     manager = ModelManager(registry)
+    tokenizers = TokenizerCache(registry)
 
     @app.exception_handler(ModelError)
     async def _model_error(_: Request, exc: ModelError) -> JSONResponse:
@@ -69,9 +75,17 @@ def create_app(registry: Registry) -> FastAPI:
     async def models_unload(body: ModelIdRequest) -> dict[str, Any]:
         return manager.unload(body.id)
 
+    @app.post("/tokenize")
+    async def tokenize(body: TokenizeRequest):
+        """Точная длина промпта в токенах (для бюджета контекста)."""
+        try:
+            counts = await asyncio.to_thread(tokenizers.count, body.model, body.texts)
+        except ModelError as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
+        return {"counts": counts}
+
     @app.post("/chat")
     async def chat(body: ChatRequest, request: Request):
-        print(f"[chat] request model={body.model}", flush=True)
         cfg = registry.get(body.model)
         if cfg is None:
             return JSONResponse(status_code=400, content={"error": f"Неизвестная модель: {body.model}"})
@@ -80,18 +94,8 @@ def create_app(registry: Registry) -> FastAPI:
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         if last_user:
             messages[-1]["content"] = apply_think(last_user, bool(cfg.get("thinks")), body.think)
-        print("[chat] messages ready", flush=True)
 
         max_tokens = min(body.max_tokens or cfg.get("max_tokens", 1024), int(cfg.get("max_tokens", 2048)))
-
-        # Загрузка (компиляция) — в отдельном потоке, чтобы не блокировать event loop.
-        # Ошибки RAM/устройства превращаются в HTTP 400 с понятным текстом.
-        try:
-            await asyncio.to_thread(manager.ensure_loaded, body.model)
-            print("[chat] model ready", flush=True)
-        except ModelError as exc:
-            print(f"[chat] load error: {exc}", flush=True)
-            return JSONResponse(status_code=400, content={"error": str(exc)})
 
         cancelled = threading.Event()
 
@@ -104,9 +108,23 @@ def create_app(registry: Registry) -> FastAPI:
 
         watcher = asyncio.create_task(watch_disconnect())
 
+        def sse(payload: dict[str, Any]) -> str:
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
         def event_stream():
-            print("[chat] stream start", flush=True)
+            # Статус уходит до загрузки: в UI видно, что идёт компиляция/загрузка,
+            # а не «зависло» на 10–45 секунд.
+            yield sse({
+                "status": "loading",
+                "model": body.model,
+                "label": cfg["label"],
+                "device": cfg["device"],
+            })
             try:
+                started = time.time()
+                manager.ensure_loaded(body.model)
+                yield sse({"status": "ready", "seconds": round(time.time() - started, 2)})
+                yield sse({"status": "generating"})
                 for event in manager.generate_stream(
                     body.model,
                     messages,
@@ -121,11 +139,11 @@ def create_app(registry: Registry) -> FastAPI:
                         payload = {"done": True, "tokens": event[1], "seconds": event[2]}
                     else:  # pragma: no cover
                         continue
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    yield sse(payload)
                     if kind == "done":
                         break
             except ModelError as exc:
-                yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+                yield sse({"error": str(exc)})
             finally:
                 cancelled.set()
                 watcher.cancel()

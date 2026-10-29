@@ -341,6 +341,7 @@ pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, S
                 size_gb: None,
                 loaded: false,
                 thinks: false,
+                context: item.context.map(|c| c as u32),
             });
         }
     }

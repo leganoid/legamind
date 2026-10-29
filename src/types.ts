@@ -27,6 +27,7 @@ export interface ModelInfo {
   size_gb: number | null;
   loaded: boolean;
   thinks: boolean;
+  context: number | null;
 }
 
 export interface ProviderView {
@@ -133,6 +134,35 @@ export interface ChatDonePayload {
   tokens: number | null;
   seconds: number;
   stopped: boolean;
+  context: ContextUsage | null;
+}
+
+export interface ContextUsage {
+  used: number;
+  limit: number;
+  reserve: number;
+  dropped: number;
+  included: number;
+}
+
+export interface ChatStatusPayload {
+  request_id: string;
+  session_id: string;
+  phase: string;
+  label: string | null;
+  device: string | null;
+  seconds: number | null;
+}
+
+export interface RegenStart {
+  request_id: string;
+  removed_ids: string[];
+}
+
+export interface EditStart {
+  request_id: string;
+  removed_ids: string[];
+  message: ChatMessageRow;
 }
 
 export interface ChatErrorPayload {

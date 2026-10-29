@@ -359,7 +359,16 @@ async fn call_model(
             },
         );
     };
-    router.stream(model_id, &messages, &params, cancel, &mut on_delta).await
+    router
+        .stream(
+            model_id,
+            &messages,
+            &params,
+            cancel,
+            &mut on_delta,
+            &mut |_: &crate::models::ChatStatus| {},
+        )
+        .await
 }
 
 async fn run_debate(app: AppHandle, debate_id: String, req: DebateRequest, cancel: Arc<AtomicBool>) {

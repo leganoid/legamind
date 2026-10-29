@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import ctypes
+import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -239,6 +240,44 @@ class ModelManager:
 
 class _End:
     pass
+
+
+class TokenizerCache:
+    """Кэш токенизаторов: считаем токены в промпте без загрузки самой LLM.
+
+    Токенизатор лёгкий (файлы из папки модели), но не потокобезопасный,
+    поэтому все вызовы encode идут под RLock.
+    """
+
+    def __init__(self, registry: Registry):
+        self.registry = registry
+        self._cache: dict[str, Any] = {}
+        self._lock = threading.RLock()
+
+    def _get(self, model_id: str) -> Any:
+        with self._lock:
+            tokenizer = self._cache.get(model_id)
+            if tokenizer is not None:
+                return tokenizer
+            cfg = self.registry.get(model_id)
+            if cfg is None:
+                raise ModelError(f"Неизвестная модель: {model_id}")
+            try:
+                tokenizer = ov_genai.Tokenizer(cfg["path"])
+            except Exception as exc:  # noqa: BLE001
+                raise ModelError(f"Не удалось загрузить токенизатор {model_id}: {exc}") from exc
+            self._cache[model_id] = tokenizer
+            return tokenizer
+
+    def count(self, model_id: str, texts: list[str]) -> list[int]:
+        tokenizer = self._get(model_id)
+        counts: list[int] = []
+        with self._lock:
+            for text in texts:
+                encoded = tokenizer.encode(text)
+                shape = list(encoded.input_ids.get_shape())
+                counts.append(int(math.prod(shape)) if shape else 0)
+        return counts
 
 
 _END = _End()

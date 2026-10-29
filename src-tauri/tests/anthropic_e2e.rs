@@ -106,6 +106,7 @@ async fn anthropic_stream_is_parsed() {
                 text.push_str(d);
                 deltas += 1;
             },
+            &mut |_: &legamind_lib::models::ChatStatus| {},
         )
         .await
         .expect("anthropic stream");

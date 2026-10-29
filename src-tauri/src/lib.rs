@@ -191,6 +191,32 @@ pub fn run() {
                 .user_agent("legamind/0.1")
                 .build()?;
 
+            // На HiDPI-экранах окно из конфига (логические пиксели) может не влезть
+            // в экран. После появления окна подгоняем размер под монитор.
+            if let Some(window) = app.get_webview_window("main") {
+                let window = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+                    let monitor = window.current_monitor().ok().flatten().or_else(|| {
+                        window.primary_monitor().ok().flatten()
+                    });
+                    if let Some(monitor) = monitor {
+                        let scale = if monitor.scale_factor() > 0.0 {
+                            monitor.scale_factor()
+                        } else {
+                            1.0
+                        };
+                        let size = monitor.size();
+                        let logical_w = size.width as f64 / scale;
+                        let logical_h = size.height as f64 / scale;
+                        let width = (logical_w - 32.0).max(640.0);
+                        let height = (logical_h - 72.0).max(480.0);
+                        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+                        let _ = window.set_position(tauri::LogicalPosition::new(12.0, 6.0));
+                    }
+                });
+            }
+
             app.manage(AppState {
                 db,
                 db_path,
@@ -222,6 +248,9 @@ pub fn run() {
             messages_list,
             chat::chat_send,
             chat::chat_stop,
+            chat::chat_regenerate,
+            chat::chat_edit_and_resend,
+            chat::context_usage,
             models_load,
             models_unload,
             engine_restart,
