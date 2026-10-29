@@ -247,6 +247,28 @@ export interface FinetuneStatus {
   note: string;
 }
 
+export interface ExtractedItem {
+  id: string;
+  instruction: string;
+  answer: string;
+  duplicate_of: string | null;
+  duplicate_score: number;
+  warnings: string[];
+}
+
+export interface CandidateCheck {
+  model_answer: string;
+  coverage: number;
+  jaccard: number;
+  verdict: "already" | "partial" | "new" | string;
+}
+
+export interface AppendResult {
+  added: number;
+  skipped: number;
+  total: number;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

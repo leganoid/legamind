@@ -4,6 +4,8 @@ import type {
   AppInfo,
   ChatMessageRow,
   ChatStart,
+  AppendResult,
+  CandidateCheck,
   CheckResult,
   CommandResult,
   ContextUsage,
@@ -12,6 +14,7 @@ import type {
   DebateRow,
   DebateStartResult,
   EditStart,
+  ExtractedItem,
   FeedbackRow,
   FinetuneStatus,
   LessonRow,
@@ -79,6 +82,13 @@ export const api = {
     count?: number;
   }) => invoke<DatasetRow>("dataset_generate", { req }),
   datasetDelete: (id: string) => invoke<void>("dataset_delete", { id }),
+  datasetCreate: (name: string) => invoke<DatasetRow>("dataset_create", { name }),
+  datasetAppend: (datasetId: string, items: { instruction: string; answer: string }[]) =>
+    invoke<AppendResult>("dataset_append", { datasetId, items }),
+  sessionExtract: (sessionId: string, teacherModel: string) =>
+    invoke<ExtractedItem[]>("session_extract", { sessionId, teacherModel }),
+  candidateCheck: (modelId: string, instruction: string, answer: string) =>
+    invoke<CandidateCheck>("candidate_check", { modelId, instruction, answer }),
   finetuneStatus: () => invoke<FinetuneStatus>("finetune_status"),
 
   providersList: () => invoke<ProviderView[]>("providers_list"),

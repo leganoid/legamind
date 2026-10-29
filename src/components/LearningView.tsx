@@ -2,8 +2,10 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount }
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api } from "../api";
 import type {
+  CandidateCheck,
   DatasetProgress,
   DatasetRow,
+  ExtractedItem,
   FinetuneStatus,
   LessonRow,
   ModelInfo,
@@ -33,6 +35,12 @@ export default function LearningView(props: Props) {
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
   const [copied, setCopied] = createSignal(false);
+  const [candidates, setCandidates] = createSignal<ExtractedItem[]>([]);
+  const [checks, setChecks] = createSignal<Record<string, CandidateCheck>>({});
+  const [extractSession, setExtractSession] = createSignal("");
+  const [extracting, setExtracting] = createSignal(false);
+  const [targetDataset, setTargetDataset] = createSignal("");
+  const [newDatasetName, setNewDatasetName] = createSignal("");
 
   const loadLessons = async () => setLessons(await api.lessonsList());
   const loadDatasets = async () => setDatasets(await api.datasetsList());
@@ -94,7 +102,81 @@ export default function LearningView(props: Props) {
     await loadDatasets();
   };
 
+  // По умолчанию берём самую свежую сессию — обычно именно в ней готовый результат.
+  createEffect(() => {
+    if (!extractSession() && sessions().length > 0) {
+      setExtractSession(sessions()[0].id);
+    }
+  });
+
   const lastDataset = createMemo(() => datasets()[0] ?? null);
+
+  const extractFromSession = async () => {
+    if (!extractSession()) {
+      setError("Выберите сессию");
+      return;
+    }
+    if (!teacher()) {
+      setError("Выберите модель-учителя");
+      return;
+    }
+    setExtracting(true);
+    setError(null);
+    setNotice(null);
+    setCandidates([]);
+    setChecks({});
+    try {
+      const items = await api.sessionExtract(extractSession(), teacher());
+      setCandidates(items);
+      if (items.length === 0) {
+        setNotice("Итогов не найдено — попробуйте другую модель-учителя");
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const checkCandidate = async (item: ExtractedItem) => {
+    try {
+      const result = await api.candidateCheck(teacher(), item.instruction, item.answer);
+      setChecks((prev) => ({ ...prev, [item.id]: result }));
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const acceptCandidate = async (item: ExtractedItem) => {
+    try {
+      let datasetId = targetDataset();
+      if (!datasetId) {
+        const name = newDatasetName().trim() || `from-session-${new Date().toISOString().slice(0, 10)}`;
+        const row = await api.datasetCreate(name);
+        datasetId = row.id;
+        setTargetDataset(row.id);
+      }
+      const result = await api.datasetAppend(datasetId, [
+        { instruction: item.instruction, answer: item.answer },
+      ]);
+      setNotice(`Добавлено: ${result.added}, пропущено дублей: ${result.skipped}`);
+      setCandidates((prev) => prev.filter((c) => c.id !== item.id));
+      await loadDatasets();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const rejectCandidate = (item: ExtractedItem) => {
+    setCandidates((prev) => prev.filter((c) => c.id !== item.id));
+  };
+
+  const verdictLabel = (verdict: string) =>
+    verdict === "already"
+      ? "модель уже умеет"
+      : verdict === "partial"
+        ? "частично знает"
+        : "новое";
 
   // Учителем по умолчанию — облачная модель (быстрее и качественнее для датасетов),
   // иначе первая доступная локальная.
@@ -327,6 +409,109 @@ export default function LearningView(props: Props) {
                   </button>
                 </div>
               )}
+            </For>
+          </div>
+        </Show>
+      </section>
+
+      <section class="card form">
+        <h2>Из сессии: итоговый результат</h2>
+        <p class="muted small">
+          Модель вытащит из готового диалога только финальные решения (код, команды, шаги), без
+          промежуточной отладки. Кандидаты проверяются на дубли с уже собранными датасетами;
+          кнопка «Проверить знание» просит модель ответить самой и сравнивает с эталоном.
+        </p>
+
+        <div class="form-grid">
+          <label>
+            Сессия
+            <select value={extractSession()} onChange={(e) => setExtractSession(e.currentTarget.value)}>
+              <option value="">Выберите сессию…</option>
+              <For each={sessions()}>{(s) => <option value={s.id}>{s.title}</option>}</For>
+            </select>
+          </label>
+          <label>
+            Куда добавлять
+            <select value={targetDataset()} onChange={(e) => setTargetDataset(e.currentTarget.value)}>
+              <option value="">— новый датасет —</option>
+              <For each={datasets()}>
+                {(row) => <option value={row.id}>{row.name} ({row.examples})</option>}
+              </For>
+            </select>
+          </label>
+          <Show when={!targetDataset()}>
+            <label>
+              Название нового
+              <input
+                value={newDatasetName()}
+                onInput={(e) => setNewDatasetName(e.currentTarget.value)}
+                placeholder="из-сессии-..."
+              />
+            </label>
+          </Show>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn primary" onClick={extractFromSession} disabled={extracting()}>
+            {extracting() ? "Извлекаю итоги…" : "Извлечь итоги"}
+          </button>
+        </div>
+
+        <Show when={candidates().length > 0}>
+          <div class="candidate-list">
+            <For each={candidates()}>
+              {(item) => {
+                const check = () => checks()[item.id];
+                return (
+                  <div class="candidate-card">
+                    <div class="row space-between">
+                      <strong class="candidate-instruction">{item.instruction}</strong>
+                      <div class="row">
+                        <Show when={item.duplicate_of}>
+                          <span class="badge off" title={item.duplicate_of ?? ""}>
+                            дубль {Math.round(item.duplicate_score * 100)}%
+                          </span>
+                        </Show>
+                        <Show when={check()}>
+                          <span
+                            classList={{
+                              badge: true,
+                              on: check()!.verdict === "new",
+                              off: check()!.verdict !== "new",
+                            }}
+                          >
+                            {verdictLabel(check()!.verdict)} · {Math.round(check()!.coverage * 100)}%
+                          </span>
+                        </Show>
+                        <For each={item.warnings}>
+                          {(warning) => <span class="badge off">{warning}</span>}
+                        </For>
+                      </div>
+                    </div>
+                    <details class="candidate-answer">
+                      <summary class="muted small">Показать ответ ({item.answer.length} симв.)</summary>
+                      <pre>{item.answer}</pre>
+                    </details>
+                    <Show when={check()}>
+                      <div class="muted small candidate-model-answer">
+                        Ответ модели: {check()!.model_answer.slice(0, 220)}
+                        {check()!.model_answer.length > 220 ? "…" : ""}
+                      </div>
+                    </Show>
+                    <div class="row">
+                      <button class="btn small" onClick={() => checkCandidate(item)}>
+                        Проверить знание
+                      </button>
+                      <button class="btn small primary" onClick={() => acceptCandidate(item)}>
+                        Принять в датасет
+                      </button>
+                      <button class="btn small ghost" onClick={() => rejectCandidate(item)}>
+                        Отклонить
+                      </button>
+                    </div>
+                  </div>
+                );
+              }}
             </For>
           </div>
         </Show>

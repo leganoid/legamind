@@ -442,6 +442,370 @@ fn emit_progress(
     );
 }
 
+// ------------------------------------------------------------------ извлечение итогов из сессии
+
+/// Кандидат в обучающую пару, извлечённый из готового диалога.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtractedItem {
+    pub id: String,
+    pub instruction: String,
+    pub answer: String,
+    pub duplicate_of: Option<String>,
+    pub duplicate_score: f64,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CheckResult {
+    pub model_answer: String,
+    pub coverage: f64,
+    pub jaccard: f64,
+    pub verdict: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppendItem {
+    pub instruction: String,
+    pub answer: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AppendResult {
+    pub added: usize,
+    pub skipped: usize,
+    pub total: i64,
+}
+
+fn norm_tokens(text: &str) -> std::collections::BTreeSet<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| word.chars().count() >= 4)
+        .map(|word| word.to_string())
+        .collect()
+}
+
+/// Сходство Жаккара по словам (грубая, но быстрая оценка «то же самое или нет»).
+pub fn jaccard(a: &str, b: &str) -> f64 {
+    let left = norm_tokens(a);
+    let right = norm_tokens(b);
+    if left.is_empty() || right.is_empty() {
+        return 0.0;
+    }
+    let inter = left.intersection(&right).count() as f64;
+    let union = left.union(&right).count() as f64;
+    if union == 0.0 {
+        0.0
+    } else {
+        inter / union
+    }
+}
+
+/// Доля слов эталона, которые встречаются в проверяемом ответе.
+pub fn coverage(target: &str, candidate: &str) -> f64 {
+    let reference = norm_tokens(target);
+    if reference.is_empty() {
+        return 0.0;
+    }
+    let other = norm_tokens(candidate);
+    reference.intersection(&other).count() as f64 / reference.len() as f64
+}
+
+/// Инструкции из уже сохранённых датасетов — для отсева повторов.
+fn existing_instructions(state: &AppState) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(rows) = state.db.datasets_list() else {
+        return out;
+    };
+    for row in rows {
+        let Ok(text) = std::fs::read_to_string(&row.path) else {
+            continue;
+        };
+        for line in text.lines().take(2000) {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            if let Some(instruction) = value
+                .get("messages")
+                .and_then(|m| m.as_array())
+                .and_then(|m| m.first())
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())
+            {
+                out.push(instruction.to_string());
+            }
+        }
+        if out.len() >= 4000 {
+            break;
+        }
+    }
+    out
+}
+
+fn transcript_for_extraction(state: &AppState, session_id: &str) -> Result<String, String> {
+    let messages = state.db.messages_list(session_id).map_err(|e| e.to_string())?;
+    if messages.is_empty() {
+        return Err("В сессии нет сообщений".into());
+    }
+    let mut out = String::new();
+    for message in messages.iter().rev().take(40).rev() {
+        let role = if message.role == "user" { "Пользователь" } else { "Ассистент" };
+        let body: String = message.content.chars().take(1000).collect();
+        out.push_str(&format!("{role}: {body}\n\n"));
+        if out.len() > 12_000 {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+pub fn extract_prompt(transcript: &str) -> String {
+    format!(
+        "Ниже диалог пользователя и ассистента, в котором они пришли к готовому решению задачи.\n\n\
+         ---\n{transcript}\n---\n\n\
+         Извлеки ТОЛЬКО итоговые результаты. Правила:\n\
+         - instruction — самодостаточная постановка задачи (1–3 предложения, с ключевым контекстом, \
+           чтобы её поняли без диалога);\n\
+         - answer — финальное рабочее решение целиком (код, команды, конфиг или точные шаги), \
+           без отладки, тупиков, приветствий и рассуждений «попробуем»;\n\
+         - не включай промежуточные версии и вопросы пользователя;\n\
+         - максимум 3 пары, только если они действительно разные;\n\
+         - если итог не ясен — верни пустой список.\n\
+         Верни строго JSON: {{\"items\":[{{\"instruction\":\"...\",\"answer\":\"...\"}}]}}"
+    )
+}
+
+/// Отсев дублей среди кандидатов и относительно уже собранных датасетов.
+fn mark_duplicates(items: Vec<(String, String)>, existing: &[String]) -> Vec<ExtractedItem> {
+    let mut out: Vec<ExtractedItem> = Vec::new();
+    for (instruction, answer) in items {
+        let mut warnings = Vec::new();
+        if instruction.chars().count() < 15 {
+            warnings.push("короткая инструкция".to_string());
+        }
+        if answer.chars().count() < 80 {
+            warnings.push("короткий ответ".to_string());
+        }
+        if answer.contains("<think>") {
+            warnings.push("в ответе остались теги размышлений".to_string());
+        }
+
+        let mut duplicate_of = None;
+        let mut duplicate_score = 0.0f64;
+        for existing_instruction in existing {
+            let score = jaccard(&instruction, existing_instruction).max(
+                jaccard(&answer, existing_instruction) * 0.8,
+            );
+            if score > duplicate_score {
+                duplicate_score = score;
+                duplicate_of = Some(existing_instruction.clone());
+            }
+        }
+        for previous in &out {
+            let score = jaccard(&instruction, &previous.instruction);
+            if score > duplicate_score {
+                duplicate_score = score;
+                duplicate_of = Some(format!("другой кандидат: {}", previous.instruction));
+            }
+        }
+        if duplicate_score < 0.55 {
+            duplicate_of = None;
+        }
+
+        out.push(ExtractedItem {
+            id: new_id(),
+            instruction,
+            answer,
+            duplicate_of,
+            duplicate_score,
+            warnings,
+        });
+    }
+    out.sort_by(|a, b| a.duplicate_score.partial_cmp(&b.duplicate_score).unwrap_or(std::cmp::Ordering::Equal));
+    out
+}
+
+#[tauri::command]
+pub async fn session_extract(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    teacher_model: String,
+) -> Result<Vec<ExtractedItem>, String> {
+    if teacher_model.trim().is_empty() {
+        return Err("Выберите модель-учителя".into());
+    }
+    let transcript = transcript_for_extraction(&state, &session_id)?;
+    if transcript.chars().count() < 40 {
+        return Err("В сессии слишком мало содержательного текста".into());
+    }
+    if teacher_model.starts_with("local/") {
+        crate::sidecar::ensure_ready(&app)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    let messages = vec![
+        ChatMessage::new("system", "Ты извлекаешь обучающие данные. Отвечаешь только JSON."),
+        ChatMessage::new("user", extract_prompt(&transcript)),
+    ];
+    let params = ChatParams { max_tokens: 1200, temperature: 0.3, think: false };
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let router = Router { state: &state };
+    let outcome = router
+        .stream(
+            &teacher_model,
+            &messages,
+            &params,
+            &cancel,
+            &mut |_| {},
+            &mut |_: &ChatStatus| {},
+        )
+        .await
+        .map_err(|e| format!("Не удалось извлечь итоги: {e}"))?;
+
+    let items = parse_dataset_items(&outcome.text);
+    if items.is_empty() {
+        return Err(
+            "Модель не вернула пары. Попробуйте облачную модель-учителя или более полный диалог."
+                .into(),
+        );
+    }
+    let existing = existing_instructions(&state);
+    Ok(mark_duplicates(items, &existing))
+}
+
+/// «А модель это уже умеет?» — просим модель ответить самой и сравниваем с эталоном.
+#[tauri::command]
+pub async fn candidate_check(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    model_id: String,
+    instruction: String,
+    answer: String,
+) -> Result<CheckResult, String> {
+    if model_id.starts_with("local/") {
+        crate::sidecar::ensure_ready(&app)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    let messages = vec![
+        ChatMessage::new("system", "Отвечай по существу, без вступлений и извинений."),
+        ChatMessage::new("user", instruction.clone()),
+    ];
+    let params = ChatParams { max_tokens: 500, temperature: 0.2, think: false };
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let router = Router { state: &state };
+    let outcome = router
+        .stream(
+            &model_id,
+            &messages,
+            &params,
+            &cancel,
+            &mut |_| {},
+            &mut |_: &ChatStatus| {},
+        )
+        .await
+        .map_err(|e| format!("Не удалось проверить: {e}"))?;
+
+    let model_answer = outcome.text.trim().to_string();
+    let coverage = coverage(&answer, &model_answer);
+    let jaccard = jaccard(&answer, &model_answer);
+    let verdict = if coverage >= 0.6 || jaccard >= 0.5 {
+        "already"
+    } else if coverage >= 0.35 {
+        "partial"
+    } else {
+        "new"
+    };
+    Ok(CheckResult {
+        model_answer,
+        coverage,
+        jaccard,
+        verdict: verdict.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn dataset_create(
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<DatasetRow, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Укажите название датасета".into());
+    }
+    let dir = state.data_dir.join("datasets");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dataset_id = new_id();
+    let path = dir.join(format!("{}-{}.jsonl", slugify(name), &dataset_id[..8]));
+    std::fs::write(&path, "").map_err(|e| e.to_string())?;
+    let row = state
+        .db
+        .dataset_add(name, &path.to_string_lossy(), None, 0)
+        .map_err(|e| e.to_string())?;
+    Ok(row)
+}
+
+#[tauri::command]
+pub async fn dataset_append(
+    state: tauri::State<'_, AppState>,
+    dataset_id: String,
+    items: Vec<AppendItem>,
+) -> Result<AppendResult, String> {
+    let rows = state.db.datasets_list().map_err(|e| e.to_string())?;
+    let row = rows
+        .into_iter()
+        .find(|row| row.id == dataset_id)
+        .ok_or_else(|| "Датасет не найден".to_string())?;
+
+    let existing_text = std::fs::read_to_string(&row.path).unwrap_or_default();
+    let mut existing = Vec::new();
+    let mut body = existing_text.clone();
+    for line in existing_text.lines() {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(instruction) = value
+                .get("messages")
+                .and_then(|m| m.as_array())
+                .and_then(|m| m.first())
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())
+            {
+                existing.push(instruction.to_string());
+            }
+        }
+    }
+    if !body.ends_with('\n') && !body.is_empty() {
+        body.push('\n');
+    }
+
+    let mut added = 0usize;
+    let mut skipped = 0usize;
+    for item in &items {
+        if item.instruction.trim().len() < 10 || item.answer.trim().len() < 20 {
+            skipped += 1;
+            continue;
+        }
+        let duplicate = existing
+            .iter()
+            .any(|instruction| jaccard(instruction, &item.instruction) >= 0.75);
+        if duplicate {
+            skipped += 1;
+            continue;
+        }
+        body.push_str(&jsonl_line(item.instruction.trim(), item.answer.trim()));
+        body.push('\n');
+        existing.push(item.instruction.clone());
+        added += 1;
+    }
+    std::fs::write(&row.path, body).map_err(|e| e.to_string())?;
+    let total = row.examples + added as i64;
+    state
+        .db
+        .dataset_set_examples(&dataset_id, total)
+        .map_err(|e| e.to_string())?;
+    Ok(AppendResult { added, skipped, total })
+}
+
 // ------------------------------------------------------------------ готовность к дообучению
 
 #[derive(Debug, Clone, Serialize)]
@@ -645,5 +1009,32 @@ mod tests {
     fn lesson_block_budget_and_ordering() {
         // Косвенная проверка: пустой набор не даёт блока.
         assert!(LESSONS_BUDGET > 500);
+    }
+
+    #[test]
+    fn similarity_metrics() {
+        assert!(jaccard("чтение файла python", "чтение файла python") > 0.99);
+        assert!(jaccard("чтение файла python", "совсем другой текст") < 0.2);
+        assert!((coverage("чтение файла python", "чтение файла") - 2.0 / 3.0).abs() < 0.01);
+        assert_eq!(coverage("", "что угодно"), 0.0);
+    }
+
+    #[test]
+    fn duplicates_are_marked() {
+        let items = vec![
+            ("Как правильно читать файл в Python".to_string(), "Используй with open(...) as f: f.read()".to_string()),
+            ("Как правильно читать файл в Python".to_string(), "Используй with open(...) as f: f.read()".to_string()),
+        ];
+        let existing = vec!["Как правильно читать файл в Python".to_string()];
+        let marked = mark_duplicates(items, &existing);
+        assert!(marked[0].duplicate_of.is_some(), "должен быть найден дубль");
+        assert!(marked[0].duplicate_score > 0.9);
+    }
+
+    #[test]
+    fn extract_prompt_asks_for_json() {
+        let prompt = extract_prompt("Пользователь: привет");
+        assert!(prompt.contains("\"items\""));
+        assert!(prompt.contains("итоговые"));
     }
 }
