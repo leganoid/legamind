@@ -150,7 +150,7 @@ fn spawn_blocking(app: &AppHandle) -> Result<Sidecar> {
     let stdout_path = logs.join("engine_stdout.log");
     while Instant::now() < deadline {
         if let Ok(text) = std::fs::read_to_string(&stdout_path) {
-            if let Some(rest) = text.split("HIVESIDECAR READY port=").nth(1) {
+            if let Some(rest) = text.split("LEGAMINDSIDECAR READY port=").nth(1) {
                 if let Some(value) = rest.split_whitespace().next() {
                     if let Ok(parsed) = value.parse::<u16>() {
                         port = Some(parsed);

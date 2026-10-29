@@ -178,6 +178,47 @@ async fn engine_restart(app: tauri::AppHandle, state: State<'_, AppState>) -> Re
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
+/// Переносит данные из старого имени `com.legamind.app` в `com.legamind.app`.
+fn migrate_legacy_data(new_dir: &std::path::Path) {
+    let Some(local) = std::env::var("APPDATA").ok() else {
+        return;
+    };
+    let legacy_dir = std::path::PathBuf::from(local).join("com.legamind.app");
+    if !new_dir.exists() && legacy_dir.exists() {
+        match copy_dir_all(&legacy_dir, new_dir) {
+            Ok(()) => logging::log_line("app.log", "migrated data from com.legamind.app"),
+            Err(err) => logging::log_line("app.log", &format!("data migration failed: {err}")),
+        }
+    }
+    let _ = std::fs::create_dir_all(new_dir);
+    let legacy_db = new_dir.join("legamind.db");
+    let target_db = new_dir.join("legamind.db");
+    if legacy_db.exists() && !target_db.exists() {
+        let _ = std::fs::rename(&legacy_db, &target_db);
+        for suffix in ["-wal", "-shm"] {
+            let from = new_dir.join(format!("legamind.db{suffix}"));
+            let to = new_dir.join(format!("legamind.db{suffix}"));
+            if from.exists() {
+                let _ = std::fs::rename(from, to);
+            }
+        }
+    }
+}
+
 pub fn run() {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
@@ -188,12 +229,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            migrate_legacy_data(&data_dir);
             std::fs::create_dir_all(&data_dir)?;
             let db_path = data_dir.join("legamind.db");
             let db = Db::open(&db_path)?;
             let client = reqwest::Client::builder()
                 .user_agent("legamind/0.1")
                 .build()?;
+            secrets::migrate_legacy_keys(&db);
 
             // На HiDPI-экранах окно из конфига (логические пиксели) может не влезть
             // в экран. После появления окна подгоняем размер под монитор.

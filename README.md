@@ -63,7 +63,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
 > приложение этой проблемы не имеет. Подробности — в `NOTES.md`.
 
 Сайдкар запускается приложением сам: `python -m engine --port 0 --models-config <appdata>\engine_config.json`,
-Rust читает из stdout строку `HIVESIDECAR READY port=...` и завершает процесс при выходе.
+Rust читает из stdout строку `LEGAMINDSIDECAR READY port=...` и завершает процесс при выходе.
 Вывод движка пишется в `%APPDATA%\com.legamind.app\logs\engine_stdout.log`.
 
 ## Проверки

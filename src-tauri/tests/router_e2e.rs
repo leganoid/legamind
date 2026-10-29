@@ -63,7 +63,7 @@ fn start_engine() -> Engine {
     let mut port = None;
     while Instant::now() < deadline {
         if let Ok(text) = std::fs::read_to_string(&stdout_path) {
-            if let Some(rest) = text.split("HIVESIDECAR READY port=").nth(1) {
+            if let Some(rest) = text.split("LEGAMINDSIDECAR READY port=").nth(1) {
                 port = rest.split_whitespace().next().and_then(|v| v.parse::<u16>().ok());
                 if port.is_some() {
                     break;

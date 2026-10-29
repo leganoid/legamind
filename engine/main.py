@@ -1,7 +1,7 @@
 """FastAPI-сайдкар legamind-engine.
 
 Запуск: python -m engine --port 0 --models-config <path>
-Печатает в stdout: HIVESIDECAR READY port=<port> pid=<pid>
+Печатает в stdout: LEGAMINDSIDECAR READY port=<port> pid=<pid>
 Сеть — только 127.0.0.1.
 """
 

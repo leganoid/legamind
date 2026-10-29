@@ -317,3 +317,22 @@ HTML-выдача обоих поисковиков без ключей не р�
 * **Орфография** — у textarea включён `spellcheck`, `lang="ru-RU"`, в WebView2 добавлены
   `--enable-spell-checking --lang=ru`; подчёркивания рисует словарь Edge/Windows (при наличии
   русского языкового пакета).
+
+## 22. Переименование: Legamind → Legamind
+
+Приложение переименовано в **Legamind** (Lega + mind), иконка — тёмный квадрат с градиентным
+кругом и буквой L. Изменены: productName/окно/заголовок, identifier `com.legamind.app`,
+crate и lib (`legamind`, `legamind_lib`), exe, MSI, UI-логотип, system-промпт, User-Agent,
+сервис Credential Manager (`legamind`), папка проекта `.legamind`.
+
+Миграция при первом запуске (`migrate_legacy_data` и `secrets::migrate_legacy_keys`):
+
+* если `%APPDATA%\com.legamind.app` ещё нет — старая папка `com.legamind.app` копируется целиком;
+* `legamind.db` (+ `-wal`/`-shm`) переименовывается в `legamind.db`;
+* ключи из ключницы `legamind` переносятся в `legamind` для всех провайдеров и web-ключей
+  (Tavily/Brave/Google), старые записи не удаляются.
+
+Проверено: после запуска создана новая папка, перенесены 8 сессий, провайдер DeepSeek, 2 датасета,
+в `app.log` строки `migrated data from com.legamind.app` и `migrated key for deepseek`;
+чат с DeepSeek-V4.1-Flash отвечает, значит ключ перенесён. Старая папка оставлена как резерв
+(бэкап также в `.tools/backup-appdata-legamind`).

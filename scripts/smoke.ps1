@@ -13,7 +13,7 @@ $proc = Start-Process -FilePath $python -ArgumentList @('-m', 'engine', '--port'
 $port = $null
 for ($i = 0; $i -lt 300; $i++) {
     Start-Sleep -Milliseconds 200
-    $line = Select-String -Path $log -Pattern 'HIVESIDECAR READY port=(\d+)' -ErrorAction SilentlyContinue | Select-Object -First 1
+    $line = Select-String -Path $log -Pattern 'LEGAMINDSIDECAR READY port=(\d+)' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($line) { $port = [int]$line.Matches[0].Groups[1].Value; break }
 }
 if (-not $port) { Stop-Process -Id $proc.Id -Force; throw 'Сайдкар не сообщил порт' }

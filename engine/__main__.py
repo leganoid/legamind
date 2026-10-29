@@ -54,10 +54,10 @@ def main(argv: list[str] | None = None) -> int:
     thread.start()
 
     if not _wait_listening(port):
-        print("HIVESIDECAR ERROR port bind timeout", flush=True)
+        print("LEGAMINDSIDECAR ERROR port bind timeout", flush=True)
         return 1
 
-    print(f"HIVESIDECAR READY port={port} pid={os.getpid()}", flush=True)
+    print(f"LEGAMINDSIDECAR READY port={port} pid={os.getpid()}", flush=True)
     try:
         while thread.is_alive():
             thread.join(timeout=0.5)

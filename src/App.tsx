@@ -66,7 +66,7 @@ export default function App() {
     <div class="app">
       <nav class="nav">
         <div class="brand">
-          <span class="brand-mark">H</span>
+          <span class="brand-mark">L</span>
           <span>Legamind</span>
         </div>
         <div class="nav-items">
