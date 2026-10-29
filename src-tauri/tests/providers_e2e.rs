@@ -42,7 +42,8 @@ fn cmdkey_has(needle: &str) -> bool {
 #[test]
 fn key_lives_in_credential_manager_and_is_deleted() {
     let state = make_state();
-    let target = format!("legamind/provider:{PROVIDER}");
+    // Windows хранит запись как LegacyGeneric:target=<account>.<service>
+    let target = format!("provider:{PROVIDER}.legamind");
 
     secrets::set_key(&state, PROVIDER, "sk-test-1234567890").expect("сохранение ключа");
     assert!(cmdkey_has(&target), "cmdkey должен показывать {target}");

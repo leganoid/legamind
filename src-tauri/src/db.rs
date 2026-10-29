@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};

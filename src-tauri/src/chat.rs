@@ -254,3 +254,22 @@ fn maybe_save_episode(
     let text = format!("Чат «{title}»: вопрос «{question}» — итог: {answer_short}");
     let _ = crate::memory::save_episode(state, &text, Some(session_id));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::extract_memory_command;
+
+    #[test]
+    fn memory_command_is_recognized() {
+        assert_eq!(
+            extract_memory_command("запомни: в binres используется JFFS2").as_deref(),
+            Some("в binres используется JFFS2")
+        );
+        assert_eq!(
+            extract_memory_command("Запомни: отвечай кратко").as_deref(),
+            Some("отвечай кратко")
+        );
+        assert_eq!(extract_memory_command("обычное сообщение"), None);
+        assert_eq!(extract_memory_command("запомни:"), None);
+    }
+}

@@ -294,7 +294,10 @@ fn render_markdown(detail: &DebateDetail) -> String {
     let mut out = String::new();
     out.push_str("# Дебаты Legamind\n\n");
     out.push_str(&format!("**Дата:** {}\n\n", detail.debate.created_at));
-    out.push_str(&format!("**Участники:** {}\n\n", participants.join(", ")));
+    out.push_str(&format!(
+        "**Участники:** {}\n\n",
+        participants.iter().map(|id| model_label(id)).collect::<Vec<_>>().join(", ")
+    ));
     out.push_str(&format!("**Раундов:** {}\n\n", detail.debate.rounds));
     out.push_str(&format!("**Судья:** {}\n\n", detail.debate.judge.clone().unwrap_or_else(|| "синтез всех".into())));
     out.push_str("## Задача\n\n");

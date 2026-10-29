@@ -77,7 +77,13 @@ class ModelManager:
 
     def _config(self, device: str) -> dict[str, Any]:
         # Кэш компиляции обязателен: первый запуск 10–45 с, дальше мгновенно.
-        return {"CACHE_DIR": self.registry.cache_dir, "PERFORMANCE_HINT": "LATENCY"}
+        config: dict[str, Any] = {"CACHE_DIR": self.registry.cache_dir, "PERFORMANCE_HINT": "LATENCY"}
+        if device.upper().startswith("NPU"):
+            # У NPU по умолчанию лимит 1024 токена на промпт — для дебатов и длинных
+            # чатов этого мало (ошибка «may only process prompts up to 1024 tokens»).
+            config["MAX_PROMPT_LEN"] = 4096
+            config["MIN_RESPONSE_LEN"] = 256
+        return config
 
     def _load(self, model_id: str) -> ModelEntry:
         cfg = self.registry.get(model_id)
