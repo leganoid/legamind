@@ -196,6 +196,24 @@ pub async fn provider_save(state: State<'_, AppState>, input: ProviderInput) -> 
         secrets::set_key(&state, &id, key).map_err(|e| e.to_string())?;
     }
 
+    // Сразу подтягиваем список моделей, чтобы он появился в выборе без отдельных действий.
+    if let Ok(Some(key)) = secrets::get_key(&state, &id) {
+        if let Ok(models) = fetch_models(
+            &state.client,
+            &row.kind,
+            &row.base_url,
+            &key,
+            row.timeout_s.min(20),
+        )
+        .await
+        {
+            state
+                .db
+                .provider_models_replace(&id, &models)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
     provider_view(&state, &row).map_err(|e| e.to_string())
 }
 
@@ -220,11 +238,27 @@ pub async fn provider_check(state: State<'_, AppState>, input: ProviderInput) ->
     )
     .await
     {
-        Ok(models) => Ok(CheckResult {
-            ok: true,
-            message: format!("Соединение установлено, моделей: {}", models.len()),
-            models: models.into_iter().map(|(id, _, _)| id).collect(),
-        }),
+        Ok(models) => {
+            // TASK.md 5.4.4: успешная проверка сразу сохраняет список моделей,
+            // чтобы они появились в общем списке выбора (если провайдер уже в БД).
+            let provider_id = input.id.clone().unwrap_or_else(|| slugify(&input.label));
+            if state
+                .db
+                .provider_get(&provider_id)
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
+                state
+                    .db
+                    .provider_models_replace(&provider_id, &models)
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(CheckResult {
+                ok: true,
+                message: format!("Соединение установлено, моделей: {}", models.len()),
+                models: models.into_iter().map(|(id, _, _)| id).collect(),
+            })
+        }
         Err(e) => Ok(CheckResult { ok: false, message: e.to_string(), models: vec![] }),
     }
 }

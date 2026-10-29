@@ -119,7 +119,7 @@ pub async fn chat_stop(state: State<'_, AppState>, request_id: String) -> Result
     Ok(())
 }
 
-fn build_messages(history: &[ChatMessageRow], memory_block: Option<String>) -> Vec<ChatMessage> {
+pub(crate) fn build_messages(history: &[ChatMessageRow], memory_block: Option<String>) -> Vec<ChatMessage> {
     let mut system = String::from(
         "Ты — Legamind, локальный ассистент для разработки и инженерии. Отвечай по-русски, по делу.",
     );
@@ -257,7 +257,8 @@ fn maybe_save_episode(
 
 #[cfg(test)]
 mod tests {
-    use super::extract_memory_command;
+    use super::{build_messages, extract_memory_command};
+    use crate::db::ChatMessageRow;
 
     #[test]
     fn memory_command_is_recognized() {
@@ -271,5 +272,27 @@ mod tests {
         );
         assert_eq!(extract_memory_command("обычное сообщение"), None);
         assert_eq!(extract_memory_command("запомни:"), None);
+    }
+
+    #[test]
+    fn memory_block_lands_in_system_prompt() {
+        let history = vec![ChatMessageRow {
+            id: "m1".into(),
+            session_id: "s1".into(),
+            role: "user".into(),
+            content: "какой формат используется в binres?".into(),
+            model_id: None,
+            tokens: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+        }];
+        let block = Some(
+            "Известное о проекте (используй, если релевантно):\n- в binres используется JFFS2"
+                .to_string(),
+        );
+        let messages = build_messages(&history, block);
+        assert_eq!(messages[0].role, "system");
+        assert!(messages[0].content.contains("Известное о проекте"), "{}", messages[0].content);
+        assert!(messages[0].content.contains("JFFS2"), "{}", messages[0].content);
+        assert_eq!(messages.last().unwrap().content, history[0].content);
     }
 }

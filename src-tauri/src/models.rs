@@ -315,6 +315,7 @@ impl Router<'_> {
         let started = Instant::now();
         let mut stream = resp.bytes_stream();
         let mut buffer = String::new();
+        let mut utf8_tail: Vec<u8> = Vec::new();
         let mut text = String::new();
         let mut tokens = 0u32;
         let mut stopped = false;
@@ -326,7 +327,7 @@ impl Router<'_> {
                 break;
             }
             let chunk = chunk.map_err(|e| anyhow!("Обрыв потока: {e}"))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            buffer.push_str(&decode_stream_chunk(&mut utf8_tail, &chunk));
             while let Some(pos) = buffer.find("\n\n") {
                 let event: String = buffer.drain(..pos + 2).collect();
                 for line in event.lines() {
@@ -386,6 +387,7 @@ impl Router<'_> {
         let started = Instant::now();
         let mut stream = resp.bytes_stream();
         let mut buffer = String::new();
+        let mut utf8_tail: Vec<u8> = Vec::new();
         let mut text = String::new();
         let mut tokens = 0u32;
         let mut stopped = false;
@@ -396,7 +398,7 @@ impl Router<'_> {
                 break;
             }
             let chunk = chunk.map_err(|e| anyhow!("Обрыв потока: {e}"))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            buffer.push_str(&decode_stream_chunk(&mut utf8_tail, &chunk));
             while let Some(pos) = buffer.find("\n\n") {
                 let event: String = buffer.drain(..pos + 2).collect();
                 for line in event.lines() {
@@ -470,6 +472,21 @@ fn error_text(value: &Value) -> String {
         .and_then(|v| v.as_str())
         .unwrap_or("неизвестная ошибка")
         .to_string()
+}
+
+/// Декодирует сетевой чанк в строку, не разрывая многобайтные UTF-8 символы.
+///
+/// TCP/SSE может разрезать кириллицу на границе чанка; если декодировать каждый
+/// чанк отдельно через `from_utf8_lossy`, символ превратится в `�`.
+fn decode_stream_chunk(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
+    pending.extend_from_slice(chunk);
+    let valid = match std::str::from_utf8(pending) {
+        Ok(_) => pending.len(),
+        Err(err) => err.valid_up_to(),
+    };
+    let text = String::from_utf8_lossy(&pending[..valid]).into_owned();
+    pending.drain(..valid);
+    text
 }
 
 /// Маска ключа для UI: `sk-…ab12` (сам ключ никогда не покидает хранилище).

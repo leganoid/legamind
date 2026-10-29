@@ -698,6 +698,12 @@ impl Db {
             .optional()?)
     }
 
+    pub fn setting_remove(&self, key: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+        Ok(())
+    }
+
     pub fn setting_set(&self, key: &str, value: &str) -> Result<()> {
         let conn = self.conn();
         conn.execute(

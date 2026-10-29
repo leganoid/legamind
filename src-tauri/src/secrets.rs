@@ -29,7 +29,7 @@ pub fn set_key(state: &AppState, provider_id: &str, key: &str) -> Result<()> {
     match entry(provider_id).and_then(|e| e.set_password(key).map_err(|e| anyhow!(e.to_string()))) {
         Ok(()) => {
             // Если раньше был DPAPI-фолбэк, убираем дубль.
-            let _ = state.db.setting_set(&dpapi_setting_key(provider_id), "");
+            let _ = state.db.setting_remove(&dpapi_setting_key(provider_id));
             Ok(())
         }
         Err(err) => {
@@ -72,7 +72,7 @@ pub fn delete_key(state: &AppState, provider_id: &str) -> Result<()> {
         // NoEntry — нормальная ситуация, ключа могло не быть.
         let _ = entry.delete_credential();
     }
-    state.db.setting_set(&dpapi_setting_key(provider_id), "")?;
+    state.db.setting_remove(&dpapi_setting_key(provider_id))?;
     Ok(())
 }
 
