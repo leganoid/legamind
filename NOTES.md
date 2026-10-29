@@ -277,3 +277,22 @@ Credential Manager (`provider:deepseek`).
 Папка создаётся, если её нет (кроме случая, когда путь относительный — это ошибка).
 Канонический путь хранится без Windows-префикса `\\?\`. Модель пока не пишет в папку
 сама: файловые инструменты — следующий шаг (M6), рабочая папка станет их корнем.
+
+## 20. Google и Яндекс как поисковые провайдеры
+
+HTML-выдача обоих поисковиков без ключей не работает: Google отдаёт JS-оболочку (`enablejs`),
+Яндекс — капчу (35 маркеров `showcaptcha`). Поэтому:
+
+* **Google** — через Custom Search JSON API: нужны API-ключ (`web:google` в Credential Manager)
+  и CX (Programmable Search Engine ID, хранится в настройках). Запрос:
+  `GET https://www.googleapis.com/customsearch/v1?key=…&cx=…&q=…`; разбор `items[].title/link/snippet`.
+* **Яндекс** — best-effort HTML (`yandex.ru/search/?text=…`), парсер `li.serp-item` /
+  `OrganicTitle-Link` / `OrganicText`. При капче возвращается понятная ошибка с советом
+  использовать Google CSE/Tavily/Brave/SearxNG.
+
+Оба добавлены в «Авто»: Google — сразу после Brave (только если заданы ключ и CX), Яндекс —
+после GitHub, Yahoo остаётся последним резервом. В настройках у Google появились поля
+«Google API-ключ» и «Google CX», у Яндекса — отдельный провайдер с пометкой о капче.
+
+Проверено в UI: выбор Яндекса даёт «Яндекс показывает капчу…», выбор Google без ключа —
+«Нужен ключ Google Custom Search (и CX)…»; ошибки видны в карточке проверки, а не теряются.

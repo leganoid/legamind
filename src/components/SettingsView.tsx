@@ -8,10 +8,12 @@ export default function SettingsView() {
   const [error, setError] = createSignal<string | null>(null);
 
   const [web, setWeb] = createSignal<WebConfigView | null>(null);
-  const [provider, setProvider] = createSignal("ddg");
+  const [provider, setProvider] = createSignal("auto");
   const [searxngUrl, setSearxngUrl] = createSignal("");
   const [tavilyKey, setTavilyKey] = createSignal("");
   const [braveKey, setBraveKey] = createSignal("");
+  const [googleKey, setGoogleKey] = createSignal("");
+  const [googleCx, setGoogleCx] = createSignal("");
   const [webTest, setWebTest] = createSignal<WebTestResult | null>(null);
   const [testing, setTesting] = createSignal(false);
 
@@ -22,6 +24,7 @@ export default function SettingsView() {
     setWeb(config);
     setProvider(config.provider);
     setSearxngUrl(config.searxng_url);
+    setGoogleCx(config.google_cx);
   };
 
   const saveWeb = async (patch: { enabled?: boolean }) => {
@@ -31,12 +34,15 @@ export default function SettingsView() {
         enabled: patch.enabled,
         provider: provider(),
         searxng_url: searxngUrl(),
+        google_cx: googleCx(),
         tavily_key: tavilyKey().trim() || undefined,
         brave_key: braveKey().trim() || undefined,
+        google_key: googleKey().trim() || undefined,
       });
       setWeb(config);
       setTavilyKey("");
       setBraveKey("");
+      setGoogleKey("");
       setNotice("Настройки интернета сохранены");
     } catch (err) {
       setError(String(err));
@@ -93,9 +99,9 @@ export default function SettingsView() {
       <section class="card form">
         <h2>Интернет для моделей</h2>
         <p class="muted small">
-          Если включено, перед ответом Legamind ищет запрос в интернете (DuckDuckGo без ключа,
-          SearxNG, Tavily или Brave) и вставляет результаты в контекст. Ссылки-источники
-          сохраняются под ответом.
+          Если включено, перед ответом Legamind ищет запрос в интернете: Google Custom Search
+          (ключ + CX), Tavily, Brave или свой SearxNG; без ключей — Wikipedia, Stack Exchange,
+          GitHub и Yahoo как резерв. Найденное вставляется в контекст, ссылки сохраняются под ответом.
         </p>
 
         <Show when={web()}>
@@ -114,13 +120,15 @@ export default function SettingsView() {
             <label>
               Провайдер поиска
               <select value={provider()} onChange={(e) => setProvider(e.currentTarget.value)}>
-                <option value="auto">Авто: ключ → SearxNG → Wikipedia → SO → GitHub → Yahoo</option>
+                <option value="auto">Авто: ключ → SearxNG → Wikipedia → SO → GitHub → Yandex → Yahoo</option>
                 <option value="wikipedia">Wikipedia (без ключа)</option>
                 <option value="stackexchange">Stack Exchange (без ключа)</option>
                 <option value="github">GitHub (без ключа)</option>
                 <option value="searxng">SearxNG (свой инстанс)</option>
                 <option value="tavily">Tavily (API-ключ)</option>
                 <option value="brave">Brave Search (API-ключ)</option>
+                <option value="google">Google Custom Search (ключ + CX)</option>
+                <option value="yandex">Yandex (best effort, часто капча)</option>
                 <option value="yahoo">Yahoo (последний резерв)</option>
                 <option value="bing">Bing (best effort)</option>
                 <option value="ddg">DuckDuckGo (best effort)</option>
@@ -155,6 +163,25 @@ export default function SettingsView() {
                   value={braveKey()}
                   onInput={(e) => setBraveKey(e.currentTarget.value)}
                   placeholder="BSA…"
+                />
+              </label>
+            </Show>
+            <Show when={provider() === "google" || provider() === "auto"}>
+              <label>
+                Google API-ключ {web()!.has_google ? "(сохранён)" : ""}
+                <input
+                  type="password"
+                  value={googleKey()}
+                  onInput={(e) => setGoogleKey(e.currentTarget.value)}
+                  placeholder="AIza…"
+                />
+              </label>
+              <label>
+                Google CX (Programmable Search Engine ID)
+                <input
+                  value={googleCx()}
+                  onInput={(e) => setGoogleCx(e.currentTarget.value)}
+                  placeholder="например 0123456789:abcdefghijk"
                 />
               </label>
             </Show>

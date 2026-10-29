@@ -31,8 +31,10 @@ pub struct WebConfigView {
     pub enabled: bool,
     pub provider: String,
     pub searxng_url: String,
+    pub google_cx: String,
     pub has_tavily: bool,
     pub has_brave: bool,
+    pub has_google: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -78,8 +80,10 @@ pub async fn web_config_get(state: State<'_, AppState>) -> Result<WebConfigView,
         enabled: enabled(&state),
         provider: provider(&state),
         searxng_url: setting_string(&state, "web_searxng_url", ""),
+        google_cx: setting_string(&state, "web_google_cx", ""),
         has_tavily: web_key(&state, "tavily").is_some(),
         has_brave: web_key(&state, "brave").is_some(),
+        has_google: web_key(&state, "google").is_some(),
     })
 }
 
@@ -88,8 +92,10 @@ pub struct WebConfigInput {
     pub enabled: Option<bool>,
     pub provider: Option<String>,
     pub searxng_url: Option<String>,
+    pub google_cx: Option<String>,
     pub tavily_key: Option<String>,
     pub brave_key: Option<String>,
+    pub google_key: Option<String>,
 }
 
 #[tauri::command]
@@ -116,6 +122,8 @@ pub async fn web_config_set(
             "searxng",
             "tavily",
             "brave",
+            "google",
+            "yandex",
         ]
         .contains(&provider.as_str())
         {
@@ -144,6 +152,19 @@ pub async fn web_config_set(
             let _ = crate::secrets::delete_key(&state, "web:brave");
         } else {
             crate::secrets::set_key(&state, "web:brave", key.trim()).map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some(cx) = input.google_cx {
+        state
+            .db
+            .setting_set("web_google_cx", cx.trim())
+            .map_err(|e| e.to_string())?;
+    }
+    if let Some(key) = input.google_key {
+        if key.trim().is_empty() {
+            let _ = crate::secrets::delete_key(&state, "web:google");
+        } else {
+            crate::secrets::set_key(&state, "web:google", key.trim()).map_err(|e| e.to_string())?;
         }
     }
     web_config_get(state).await
@@ -209,6 +230,17 @@ pub async fn search(state: &AppState, query: &str, limit: usize) -> Result<Vec<W
             let key = web_key(state, "brave").ok_or_else(|| anyhow!("Нет ключа Brave"))?;
             search_brave(state, &key, query, limit).await
         }
+        "google" => {
+            let key = web_key(state, "google").ok_or_else(|| {
+                anyhow!("Нужен ключ Google Custom Search (и CX) в настройках интернета")
+            })?;
+            let cx = setting_string(state, "web_google_cx", "");
+            if cx.is_empty() {
+                bail!("Укажите CX (Programmable Search Engine ID) в настройках интернета");
+            }
+            search_google(state, &key, &cx, query, limit).await
+        }
+        "yandex" => search_yandex(state, query, limit).await,
         "ddg" => search_ddg(state, query, limit).await,
         "bing" => search_bing(state, query, limit).await,
         "yahoo" => search_yahoo(state, query, limit).await,
@@ -238,6 +270,16 @@ async fn auto_search(state: &AppState, query: &str, limit: usize) -> Result<Vec<
             Err(err) => errors.push(format!("brave: {err}")),
         }
     }
+    let google_cx = setting_string(state, "web_google_cx", "");
+    if let Some(key) = web_key(state, "google") {
+        if !google_cx.is_empty() {
+            match search_google(state, &key, &google_cx, query, limit).await {
+                Ok(results) if !results.is_empty() => return Ok(results),
+                Ok(_) => errors.push("google: пусто".into()),
+                Err(err) => errors.push(format!("google: {err}")),
+            }
+        }
+    }
     let searxng = setting_string(state, "web_searxng_url", "");
     if !searxng.is_empty() {
         match search_searxng(state, &searxng, query, limit).await {
@@ -260,6 +302,11 @@ async fn auto_search(state: &AppState, query: &str, limit: usize) -> Result<Vec<
         Ok(results) if !results.is_empty() => return Ok(results),
         Ok(_) => errors.push("github: пусто".into()),
         Err(err) => errors.push(format!("github: {err}")),
+    }
+    match search_yandex(state, query, limit).await {
+        Ok(results) if !results.is_empty() => return Ok(results),
+        Ok(_) => errors.push("yandex: пусто".into()),
+        Err(err) => errors.push(format!("yandex: {err}")),
     }
     // Yahoo — только как последний резерв: выдача нестабильна и может блокироваться.
     match search_yahoo(state, query, limit).await {
@@ -760,6 +807,127 @@ pub fn parse_ddg(html: &str, limit: usize) -> Vec<WebResult> {
     out
 }
 
+// ------------------------------------------------------------------ Google / Яндекс
+
+async fn search_google(
+    state: &AppState,
+    key: &str,
+    cx: &str,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<WebResult>> {
+    let response = state
+        .client
+        .get("https://www.googleapis.com/customsearch/v1")
+        .query(&[
+            ("key", key),
+            ("cx", cx),
+            ("q", query),
+            ("num", &limit.to_string()),
+        ])
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        bail!(
+            "Google вернул HTTP {status}: {}",
+            truncate_chars(body.trim(), 200)
+        );
+    }
+    let value: serde_json::Value = response.json().await?;
+    Ok(parse_google(&value, limit))
+}
+
+pub fn parse_google(value: &serde_json::Value, limit: usize) -> Vec<WebResult> {
+    let mut out = Vec::new();
+    let Some(items) = value.get("items").and_then(|v| v.as_array()) else {
+        return out;
+    };
+    for item in items.iter().take(limit) {
+        let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let url = item.get("link").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if title.is_empty() || !url.starts_with("http") {
+            continue;
+        }
+        let snippet = item
+            .get("snippet")
+            .and_then(|v| v.as_str())
+            .map(|text| truncate_chars(text, 300))
+            .unwrap_or_default();
+        out.push(WebResult { title, url, snippet });
+    }
+    out
+}
+
+async fn search_yandex(state: &AppState, query: &str, limit: usize) -> Result<Vec<WebResult>> {
+    let response = state
+        .client
+        .get("https://yandex.ru/search/")
+        .query(&[("text", query), ("lr", "213")])
+        .header(reqwest::header::USER_AGENT, USER_AGENT)
+        .header(reqwest::header::ACCEPT_LANGUAGE, "ru-RU,ru;q=0.9,en;q=0.6")
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        bail!("Яндекс вернул HTTP {}", response.status());
+    }
+    let html = response.text().await?;
+    if html.contains("showcaptcha") || html.contains("SmartCaptcha") {
+        bail!("Яндекс показывает капчу — используйте ключ Google CSE, Tavily/Brave или свой SearxNG");
+    }
+    Ok(parse_yandex(&html, limit))
+}
+
+/// Разбор выдачи Яндекса (`li.serp-item`, `OrganicTitle-Link`, `OrganicText`).
+pub fn parse_yandex(html: &str, limit: usize) -> Vec<WebResult> {
+    let mut out = Vec::new();
+    let chunks: Vec<&str> = if html.contains("serp-item") {
+        html.split("class=\"serp-item\"").skip(1).collect()
+    } else {
+        html.split("OrganicTitle-Link").skip(1).collect()
+    };
+    for chunk in chunks {
+        let Some(anchor_pos) = chunk.find("<a ") else {
+            continue;
+        };
+        let Some(tag_rel_end) = chunk[anchor_pos..].find('>') else {
+            continue;
+        };
+        let tag = &chunk[anchor_pos..anchor_pos + tag_rel_end];
+        let href = extract_attr(tag, "href").unwrap_or("");
+        if !href.starts_with("http") {
+            continue;
+        }
+        let after = &chunk[anchor_pos + tag_rel_end + 1..];
+        let title_end = after.find("</a>").unwrap_or(after.len());
+        let title = strip_tags(&after[..title_end]).trim().to_string();
+        if title.is_empty() {
+            continue;
+        }
+        let snippet = chunk
+            .find("OrganicText")
+            .and_then(|start| {
+                let end = chunk[start..].find('>')?;
+                let rest = &chunk[start + end + 1..];
+                let close = rest.find("</div>").or_else(|| rest.find("</span>"))?;
+                Some(truncate_chars(strip_tags(&rest[..close]).trim(), 300))
+            })
+            .unwrap_or_default();
+        out.push(WebResult {
+            title,
+            url: href.to_string(),
+            snippet,
+        });
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
+}
+
 // ------------------------------------------------------------------ Yahoo
 
 /// Yahoo оборачивает ссылки в `r.search.yahoo.com/...;RU=<url>/RK=...`.
@@ -1132,6 +1300,35 @@ mod tests {
         assert!(results[0].title.contains("Example Title"));
         assert!(results[0].snippet.contains("Snippet text"));
         assert_eq!(results[1].url, "https://example.org/b");
+    }
+
+    #[test]
+    fn parses_google_cse_json() {
+        let value: serde_json::Value = serde_json::from_str(
+            r#"{"items":[{"title":"OpenVINO GenAI","link":"https://docs.openvino.ai/genai","snippet":"Install via PyPI."}]}"#,
+        )
+        .unwrap();
+        let results = parse_google(&value, 5);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].url, "https://docs.openvino.ai/genai");
+        assert!(results[0].snippet.contains("PyPI"));
+    }
+
+    #[test]
+    fn parses_yandex_html() {
+        let html = r#"
+        <li class="serp-item">
+          <div class="organic">
+            <a class="OrganicTitle-Link" href="https://example.com/a">Пример <b>заголовка</b></a>
+            <div class="OrganicText"><span class="OrganicTextContentSpan">Описание результата.</span></div>
+          </div>
+        </li>
+        "#;
+        let results = parse_yandex(html, 5);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].url, "https://example.com/a");
+        assert_eq!(results[0].title, "Пример заголовка");
+        assert!(results[0].snippet.contains("Описание результата"));
     }
 
     #[test]

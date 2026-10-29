@@ -100,8 +100,10 @@ export const api = {
     enabled?: boolean;
     provider?: string;
     searxng_url?: string;
+    google_cx?: string;
     tavily_key?: string;
     brave_key?: string;
+    google_key?: string;
   }) => invoke<WebConfigView>("web_config_set", { input }),
   webSearch: (query: string, limit?: number) =>
     invoke<WebResult[]>("web_search", { query, limit: limit ?? 5 }),

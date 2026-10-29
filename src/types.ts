@@ -274,8 +274,10 @@ export interface WebConfigView {
   enabled: boolean;
   provider: string;
   searxng_url: string;
+  google_cx: string;
   has_tavily: boolean;
   has_brave: boolean;
+  has_google: boolean;
 }
 
 export interface WebResult {
