@@ -65,7 +65,7 @@ pub fn enabled(state: &AppState) -> bool {
 }
 
 pub fn provider(state: &AppState) -> String {
-    setting_string(state, "web_provider", "yahoo")
+    setting_string(state, "web_provider", "auto")
 }
 
 fn web_key(state: &AppState, name: &str) -> Option<String> {
@@ -836,7 +836,7 @@ async fn search_yahoo(state: &AppState, query: &str, limit: usize) -> Result<Vec
         .query(&[("p", query)])
         .header(reqwest::header::USER_AGENT, USER_AGENT)
         .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9,ru;q=0.8")
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(10))
         .send()
         .await?;
     if !response.status().is_success() {
@@ -1076,7 +1076,17 @@ pub async fn context_for(state: &AppState, user_text: &str) -> (Option<String>, 
     let query = query_from_user(user_text);
     match search(state, &query, 5).await {
         Ok(results) if !results.is_empty() => (Some(prompt_block(&query, &results)), results),
-        _ => (None, vec![]),
+        Ok(_) => {
+            crate::logging::log_line("app.log", &format!("web search: пусто по запросу «{query}»"));
+            (None, vec![])
+        }
+        Err(err) => {
+            crate::logging::log_line(
+                "app.log",
+                &format!("web search error по запросу «{query}»: {err}"),
+            );
+            (None, vec![])
+        }
     }
 }
 

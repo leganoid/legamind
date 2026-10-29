@@ -237,3 +237,22 @@ Bing/DDG как best-effort. «Авто» перебирает по порядк
 поиска; отключается тумблером.
 
 ## 17. Мелочи
+
+## 18. DeepSeek V4.1 Flash (облачная модель)
+
+Ключ DeepSeek добавлен как провайдер `deepseek` (kind=openai, base_url
+`https://api.deepseek.com/v1`, ключ в Credential Manager). В `/models` у DeepSeek две модели:
+
+| id | label | контекст | max output |
+|---|---|---|---|
+| `deepseek-flash` | DeepSeek-V4.1-Flash | 1 048 576 | 393 216 |
+| `deepseek-v4-pro` | DeepSeek-V4-Pro | 1 048 576 | 393 216 |
+
+Приложение читает `context_window` из ответа `/models`, поэтому индикатор контекста сразу
+показывает 1M, а не 8k по умолчанию. Проверено: ответ на вопрос про OpenVINO пришёл за ~8 с,
+720 символов; вместе с интернет-поиском — 2 источника и блок «Актуальные данные…» в промпте,
+`context=748/1048576`.
+
+Текущая сессия переключена на `deepseek/deepseek-flash`; новые сессии наследуют модель
+текущей (кнопка «+ Новая» берёт выбранную модель). Ключ не попадает в БД и логи — только
+Credential Manager (`provider:deepseek`).
