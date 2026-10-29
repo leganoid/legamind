@@ -1,4 +1,4 @@
-﻿# Переменные окружения для сборки Rust/Tauri на этой машине.
+# Переменные окружения для сборки Rust/Tauri на этой машине.
 # Использование:  . .\scripts\env.ps1
 # Причина: Build Tools установлены без регистрации экземпляра Visual Studio,
 # Windows SDK взят из NuGet-пакетов в .tools\sdk.
@@ -12,6 +12,8 @@ $SdkTools = Join-Path $SdkRoot 'microsoft.windows.sdk.buildtools.10.0.28000.2957
 $env:INCLUDE = "$MsvcRoot\include;$SdkCpp\ucrt;$SdkCpp\shared;$SdkCpp\um;$SdkCpp\winrt;$SdkCpp\cppwinrt"
 $env:LIB = "$MsvcRoot\lib\x64;$SdkLib\ucrt\x64;$SdkLib\um\x64"
 $env:CC = "$MsvcRoot\bin\Hostx64\x64\cl.exe"
+# tauri-build ищет компилятор ресурсов отдельно — задаём явно.
+$env:RC = "$SdkTools\rc.exe"
 
 $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
 $nodeDir = 'C:\Program Files\nodejs'
