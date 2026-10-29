@@ -1,0 +1,18 @@
+# Зависимости
+node_modules/
+.pnpm-store/
+dist/
+src-tauri/target/
+
+# Инструменты, скачанные для сборки (не часть репозитория)
+.tools/
+tmp_chat_test.py
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+engine/tests/__pycache__/
+
+# Локальные логи
+*.log

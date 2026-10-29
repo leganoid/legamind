@@ -1,0 +1,238 @@
+"""Менеджер моделей: ленивая загрузка, LRU, сериализация доступа.
+
+Правила из TASK.md 5.3:
+* не более одной модели с size_gb > 8 в памяти;
+* при нехватке — выгружать самую давно использованную;
+* один LLMPipeline на модель, доступ под threading.Lock (OpenVINO не любит параллель);
+* проверка свободной RAM перед загрузкой.
+"""
+
+from __future__ import annotations
+
+import ctypes
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable, Iterator
+
+import openvino_genai as ov_genai
+
+from .registry import HEAVY_THRESHOLD_GB, Registry
+from .prompts import render_chatml
+
+# NPU принимает только модели <= 1.5B (TASK.md, раздел 2).
+NPU_MAX_GB = 2.0
+
+
+class ModelError(RuntimeError):
+    """Понятная пользователю ошибка загрузки/генерации."""
+
+
+class _MemoryStatus(ctypes.Structure):
+    _fields_ = [
+        ("dwLength", ctypes.c_ulong),
+        ("dwMemoryLoad", ctypes.c_ulong),
+        ("ullTotalPhys", ctypes.c_ulonglong),
+        ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong),
+        ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong),
+        ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
+
+
+def free_ram_gb() -> float:
+    """Свободная физическая память в ГБ (GlobalMemoryStatusEx)."""
+    try:
+        status = _MemoryStatus()
+        status.dwLength = ctypes.sizeof(_MemoryStatus)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return status.ullAvailPhys / (1024**3)
+    except Exception:  # pragma: no cover - не критично, просто отключаем проверку
+        return float("inf")
+    return float("inf")
+
+
+@dataclass
+class ModelEntry:
+    model_id: str
+    pipeline: Any
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    last_used: float = field(default_factory=time.time)
+    size_gb: float = 0.0
+
+
+class ModelManager:
+    def __init__(self, registry: Registry):
+        self.registry = registry
+        self._entries: dict[str, ModelEntry] = {}
+        self._global_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
+
+    # ------------------------------------------------------------------ служебное
+    def loaded_ids(self) -> list[str]:
+        with self._global_lock:
+            return list(self._entries)
+
+    def _config(self, device: str) -> dict[str, Any]:
+        # Кэш компиляции обязателен: первый запуск 10–45 с, дальше мгновенно.
+        return {"CACHE_DIR": self.registry.cache_dir, "PERFORMANCE_HINT": "LATENCY"}
+
+    def _load(self, model_id: str) -> ModelEntry:
+        cfg = self.registry.get(model_id)
+        if cfg is None:
+            raise ModelError(f"Неизвестная модель: {model_id}")
+        path = cfg["path"]
+        device = cfg.get("device", "GPU")
+        size_gb = float(cfg.get("size_gb", 0))
+        if device == "NPU" and size_gb > NPU_MAX_GB:
+            raise ModelError(f"Модель {model_id} слишком велика для NPU ({size_gb} ГБ)")
+
+        free = free_ram_gb()
+        if free < size_gb + 2:
+            raise ModelError(
+                f"Недостаточно свободной памяти: нужно {size_gb + 2:.1f} ГБ, доступно {free:.1f} ГБ. "
+                "Закройте лишние приложения или выберите модель поменьше."
+            )
+
+        try:
+            print(f"[manager] creating LLMPipeline {path} on {device}", flush=True)
+            pipeline = ov_genai.LLMPipeline(path, device, self._config(device))
+            print("[manager] pipeline created", flush=True)
+        except Exception as exc:  # noqa: BLE001 - текст ошибки важен пользователю
+            raise ModelError(f"Не удалось загрузить {cfg['label']} на {device}: {exc}") from exc
+
+        entry = ModelEntry(model_id=model_id, pipeline=pipeline, size_gb=size_gb)
+        with self._global_lock:
+            self._entries[model_id] = entry
+        return entry
+
+    def _evict_for_locked(self, model_id: str, size_gb: float) -> None:
+        """Выгружает LRU. Вызывать только под уже взятым self._global_lock.
+
+        Раньше здесь брался тот же нереентерабельный Lock повторно — это давало
+        вечный deadlock при загрузке любой модели тяжелее 8 ГБ.
+        """
+        if size_gb <= HEAVY_THRESHOLD_GB:
+            return
+        heavy = [
+            e for e in self._entries.values() if e.size_gb > HEAVY_THRESHOLD_GB and e.model_id != model_id
+        ]
+        heavy.sort(key=lambda e: e.last_used)
+        for entry in heavy:
+            self._entries.pop(entry.model_id, None)
+
+    def ensure_loaded(self, model_id: str) -> ModelEntry:
+        print(f"[manager] ensure_loaded {model_id}", flush=True)
+        with self._global_lock:
+            entry = self._entries.get(model_id)
+            if entry is not None:
+                entry.last_used = time.time()
+                return entry
+        cfg = self.registry.get(model_id)
+        if cfg is None:
+            raise ModelError(f"Неизвестная модель: {model_id}")
+        with self._cache_lock:  # компиляция/загрузка — по одной
+            with self._global_lock:
+                if model_id in self._entries:
+                    return self._entries[model_id]
+                self._evict_for_locked(model_id, float(cfg.get("size_gb", 0)))
+            return self._load(model_id)
+
+    def load(self, model_id: str) -> dict[str, Any]:
+        started = time.time()
+        self.ensure_loaded(model_id)
+        return {"loaded": True, "load_seconds": round(time.time() - started, 2)}
+
+    def unload(self, model_id: str) -> dict[str, Any]:
+        with self._global_lock:
+            entry = self._entries.pop(model_id, None)
+        if entry is not None:
+            with entry.lock:
+                entry.pipeline = None
+        return {"loaded": False}
+
+    def unload_all(self) -> None:
+        with self._global_lock:
+            entries = list(self._entries.values())
+            self._entries.clear()
+        for entry in entries:
+            with entry.lock:
+                entry.pipeline = None
+
+    # ------------------------------------------------------------------ генерация
+    def generate_stream(
+        self,
+        model_id: str,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> Iterator[tuple[str, Any]]:
+        """Отдаёт поток событий ('delta', text) ... ('done', tokens, seconds)."""
+        entry = self.ensure_loaded(model_id)
+        prompt = render_chatml(messages)
+        config = ov_genai.GenerationConfig()
+        config.max_new_tokens = max(1, int(max_tokens))
+        if temperature and temperature > 0.01:
+            config.do_sample = True
+            config.temperature = float(temperature)
+            config.top_p = 0.9
+        else:
+            config.do_sample = False
+        try:
+            config.stop_strings = ov_genai.StringArray(["<|im_end|>"])
+        except Exception:  # noqa: BLE001 - в разных сборках тип называется иначе
+            pass
+
+        started = time.time()
+        tokens = 0
+        with entry.lock:
+            for chunk in self._stream(entry, prompt, config, cancel_check):
+                tokens += 1
+                yield ("delta", chunk)
+        yield ("done", tokens, round(time.time() - started, 2))
+
+    def _stream(self, entry: ModelEntry, prompt: str, config: Any, cancel_check: Callable[[], bool] | None):
+        """OpenVINO отдаёт колбэк из своего потока — прокидываем чанки через очередь."""
+        import queue
+
+        q: "queue.Queue[Any]" = queue.Queue()
+        stop = threading.Event()
+
+        def streamer(chunk: str) -> bool:
+            if stop.is_set():
+                return True
+            if cancel_check is not None and cancel_check():
+                stop.set()
+                return True
+            q.put(chunk)
+            return False
+
+        def worker() -> None:
+            try:
+                entry.pipeline.generate(prompt, config, streamer)
+                q.put(_END)
+            except Exception as exc:  # noqa: BLE001
+                q.put(exc)
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        while True:
+            item = q.get()
+            if item is _END:
+                break
+            if isinstance(item, Exception):
+                raise ModelError(f"Ошибка генерации: {item}") from item
+            if stop.is_set():
+                break
+            yield item
+        thread.join(timeout=1.0)
+
+
+class _End:
+    pass
+
+
+_END = _End()
