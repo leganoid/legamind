@@ -16,6 +16,7 @@ export default function SettingsView() {
   const [googleCx, setGoogleCx] = createSignal("");
   const [webTest, setWebTest] = createSignal<WebTestResult | null>(null);
   const [testing, setTesting] = createSignal(false);
+  const [tab, setTab] = createSignal<"internet" | "app" | "privacy">("internet");
 
   const load = async () => setInfo(await api.appInfo());
 
@@ -85,7 +86,9 @@ export default function SettingsView() {
       <header class="page-head">
         <div>
           <h1>Настройки</h1>
-          <p class="muted small">Порт выбирается ОС, путь к БД фиксирован. Здесь же — доступ в интернет.</p>
+          <p class="muted small">
+            Интернет для моделей, состояние приложения и приватность — по разделам.
+          </p>
         </div>
       </header>
 
@@ -96,6 +99,25 @@ export default function SettingsView() {
         <div class="banner info">{notice()}</div>
       </Show>
 
+      <div class="tabs">
+        <button
+          classList={{ tab: true, active: tab() === "internet" }}
+          onClick={() => setTab("internet")}
+        >
+          🌐 Интернет
+        </button>
+        <button classList={{ tab: true, active: tab() === "app" }} onClick={() => setTab("app")}>
+          ⚙ Приложение
+        </button>
+        <button
+          classList={{ tab: true, active: tab() === "privacy" }}
+          onClick={() => setTab("privacy")}
+        >
+          🔒 Приватность
+        </button>
+      </div>
+
+      <Show when={tab() === "internet"}>
       <section class="card form">
         <h2>Интернет для моделей</h2>
         <p class="muted small">
@@ -219,7 +241,9 @@ export default function SettingsView() {
           </Show>
         </Show>
       </section>
+      </Show>
 
+      <Show when={tab() === "app"}>
       <section class="card form">
         <h2>Приложение</h2>
         <dl class="kv">
@@ -248,7 +272,9 @@ export default function SettingsView() {
           </button>
         </div>
       </section>
+      </Show>
 
+      <Show when={tab() === "privacy"}>
       <section class="card">
         <h2>Приватность</h2>
         <p class="muted small">
@@ -257,6 +283,7 @@ export default function SettingsView() {
           Credential Manager (fallback — DPAPI).
         </p>
       </section>
+      </Show>
     </div>
   );
 }

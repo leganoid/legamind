@@ -114,9 +114,20 @@ export default function ChatView(props: Props) {
 
   const workdirName = () => {
     const path = activeSession()?.workdir;
-    if (!path) return "Папка";
+    if (!path) return "Выбрать папку";
     const parts = path.split(/[\\/]/).filter(Boolean);
     return parts[parts.length - 1] ?? "Папка";
+  };
+
+  const trustLabel = () => {
+    switch (activeSession()?.trust ?? "workspace") {
+      case "read_only":
+        return "только чтение";
+      case "full":
+        return "полный доступ";
+      default:
+        return "рабочая папка";
+    }
   };
 
   const reasoningOptions = () => {
@@ -667,57 +678,95 @@ export default function ChatView(props: Props) {
         </header>
 
         <div class="chat-controls">
-          <label class="control">
-            <span>Режим</span>
-            <select
-              value={activeSession()?.mode ?? "chat"}
-              onChange={(e) => updatePolicy({ mode: e.currentTarget.value })}
+          <div class="project-chip">
+            <button
+              class="btn small"
+              title={activeSession()?.workdir ?? "Выбрать рабочую папку проекта"}
+              onClick={chooseWorkdir}
             >
-              <option value="chat">Общение</option>
-              <option value="plan">Планирование</option>
-              <option value="build">Создание</option>
-              <option value="review">Ревью</option>
-            </select>
-          </label>
-          <Show when={reasoningOptions().length > 1}>
-            <label class="control">
-              <span>Рассуждения</span>
-              <select
-                value={activeSession()?.reasoning ?? reasoningOptions()[0].value}
-                onChange={(e) => updatePolicy({ reasoning: e.currentTarget.value })}
+              📁 {workdirName()}
+            </button>
+            <Show
+              when={activeSession()?.workdir}
+              fallback={<span class="muted small">папка не выбрана</span>}
+            >
+              <span
+                classList={{
+                  badge: true,
+                  danger: (activeSession()?.trust ?? "workspace") === "full",
+                }}
+                title="Что модели разрешено делать с файлами"
               >
-                <For each={reasoningOptions()}>
-                  {(option) => (
-                    <option
-                      value={option.value}
-                      selected={
-                        option.value ===
-                        (activeSession()?.reasoning ?? reasoningOptions()[0].value)
-                      }
-                    >
-                      {option.label}
-                    </option>
-                  )}
-                </For>
-              </select>
-            </label>
-          </Show>
-          <label class="control">
-            <span>Доверие</span>
-            <select
-              value={activeSession()?.trust ?? "workspace"}
-              onChange={(e) => changeTrust(e.currentTarget.value)}
-            >
-              <option value="read_only">Только чтение</option>
-              <option value="workspace">Рабочая папка</option>
-              <option value="full">Полный доступ</option>
-            </select>
-          </label>
-          <Show when={(activeSession()?.trust ?? "workspace") === "full"}>
-            <span class="badge danger" title="Модель сможет менять файлы и настройки всей машины">
-              полный доступ
-            </span>
-          </Show>
+                {trustLabel()}
+              </span>
+            </Show>
+          </div>
+
+          <details class="menu">
+            <summary class="btn small" title="Режим, обдумывание и доступ к файлам">
+              ⚙ Параметры
+            </summary>
+            <div class="menu-items params-panel">
+              <label class="field">
+                <span>Режим работы</span>
+                <select
+                  value={activeSession()?.mode ?? "chat"}
+                  onChange={(e) => updatePolicy({ mode: e.currentTarget.value })}
+                >
+                  <option value="chat">Общение</option>
+                  <option value="plan">Планирование</option>
+                  <option value="build">Создание</option>
+                  <option value="review">Ревью</option>
+                </select>
+              </label>
+              <p class="hint">
+                Общение — обычный ответ; Планирование — только план; Создание — готовый
+                результат; Ревью — критика и риски.
+              </p>
+
+              <Show when={reasoningOptions().length > 1}>
+                <label class="field">
+                  <span>Обдумывание</span>
+                  <select
+                    value={activeSession()?.reasoning ?? reasoningOptions()[0].value}
+                    onChange={(e) => updatePolicy({ reasoning: e.currentTarget.value })}
+                  >
+                    <For each={reasoningOptions()}>
+                      {(option) => (
+                        <option
+                          value={option.value}
+                          selected={
+                            option.value ===
+                            (activeSession()?.reasoning ?? reasoningOptions()[0].value)
+                          }
+                        >
+                          {option.label}
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                </label>
+                <p class="hint">Чем выше уровень, тем точнее, но медленнее ответ.</p>
+              </Show>
+
+              <label class="field">
+                <span>Доступ к файлам</span>
+                <select
+                  value={activeSession()?.trust ?? "workspace"}
+                  onChange={(e) => changeTrust(e.currentTarget.value)}
+                >
+                  <option value="read_only">Только чтение</option>
+                  <option value="workspace">Рабочая папка</option>
+                  <option value="full">Полный доступ</option>
+                </select>
+              </label>
+              <p class="hint">
+                Только чтение — без изменений; Рабочая папка — правки внутри проекта; Полный
+                доступ — любые пути (каждая запись подтверждается).
+              </p>
+            </div>
+          </details>
+
           <details class="menu" ref={projectMenu}>
             <summary class="btn small">Проект ▾</summary>
             <div class="menu-items">
@@ -790,9 +839,49 @@ export default function ChatView(props: Props) {
             <div class="empty">
               <h2>Legamind</h2>
               <p class="muted">
-                Локальные модели OpenVINO и облачные провайдеры в одном окне. Начните диалог или
-                создайте новую сессию.
+                Локальные модели OpenVINO и облачные провайдеры в одном окне. Начните с трёх
+                шагов — или просто напишите сообщение.
               </p>
+              <div class="onboarding">
+                <div class="step">
+                  <span class="step-num">1</span>
+                  <div>
+                    <strong>Выберите рабочую папку</strong>
+                    <p class="muted small">
+                      Модель будет читать и менять файлы только в ней.
+                    </p>
+                    <button class="btn small" onClick={chooseWorkdir}>
+                      📁 {activeSession()?.workdir ? "Сменить папку" : "Выбрать папку"}
+                    </button>
+                  </div>
+                </div>
+                <div class="step">
+                  <span class="step-num">2</span>
+                  <div>
+                    <strong>Проиндексируйте проект</strong>
+                    <p class="muted small">
+                      Поиск по файлам (RAG) помогает модели отвечать по вашему коду.
+                    </p>
+                    <button
+                      class="btn small"
+                      disabled={!activeSession()?.workdir}
+                      onClick={() => void indexProject()}
+                    >
+                      📚 Индексировать
+                    </button>
+                  </div>
+                </div>
+                <div class="step">
+                  <span class="step-num">3</span>
+                  <div>
+                    <strong>Напишите задачу</strong>
+                    <p class="muted small">
+                      Например: «Прочитай notes.md и предложи три улучшения». Действия с файлами
+                      подтверждаются кнопкой.
+                    </p>
+                  </div>
+                </div>
+              </div>
               <p class="muted small">Подсказка: «запомни: …» сохраняет факт в память.</p>
             </div>
           </Show>
