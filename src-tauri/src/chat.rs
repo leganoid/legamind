@@ -548,11 +548,25 @@ async fn run_chat(
                 let trust = session_ref.trust.clone();
                 let workdir_path = std::path::PathBuf::from(&workdir);
                 let mut conversation = messages.clone();
+                let mut history_runs = 0usize;
                 if let Some(system) = conversation.first_mut() {
                     system.content.push_str("\n\n");
                     system.content.push_str(&crate::tools::tools_prompt(&workdir, &trust));
+                    if let Ok(runs) = state.db.tool_runs_recent(&session_id, 5) {
+                        history_runs = runs.len();
+                        if let Some(history) = crate::tools::history_prompt(&runs) {
+                            system.content.push_str("\n\n");
+                            system.content.push_str(&history);
+                        }
+                    }
                 }
                 params.max_tokens = params.max_tokens.max(1536);
+                log_line(
+                    "prompts.log",
+                    &format!(
+                        "=== tools {request_id} session={session_id} workdir={workdir} history_runs={history_runs}"
+                    ),
+                );
 
                 for _ in 0..4 {
                     let outcome = router
@@ -965,6 +979,7 @@ pub fn local_command(
             let removed_ids = db
                 .messages_delete_all(session_id)
                 .map_err(|e| e.to_string())?;
+            let _ = db.tool_runs_delete(session_id);
             Ok(Some(CommandResult {
                 kind: "clear".to_string(),
                 text: format!("История очищена: удалено {}", removed_ids.len()),

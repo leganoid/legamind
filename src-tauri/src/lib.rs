@@ -309,6 +309,7 @@ pub fn run() {
             workspace::session_set_policy,
             workspace::open_path,
             tools::tool_approve,
+            tools::tool_runs_list,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

@@ -329,6 +329,18 @@ export interface ToolEventPayload {
   ok: boolean;
 }
 
+export interface ToolRunRow {
+  id: string;
+  session_id: string;
+  request_id: string | null;
+  tool: string;
+  path: string | null;
+  ok: boolean;
+  summary: string | null;
+  output: string | null;
+  created_at: string;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

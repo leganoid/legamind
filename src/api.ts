@@ -28,6 +28,7 @@ import type {
   Skill,
   SkillInput,
   SourceRow,
+  ToolRunRow,
   WebConfigView,
   WebResult,
   WebTestResult,
@@ -112,6 +113,8 @@ export const api = {
   sourcesList: (sessionId: string) => invoke<SourceRow[]>("sources_list", { sessionId }),
   toolApprove: (approvalId: string, approve: boolean) =>
     invoke<void>("tool_approve", { approvalId, approve }),
+  toolRunsList: (sessionId: string, limit = 20) =>
+    invoke<ToolRunRow[]>("tool_runs_list", { sessionId, limit }),
 
   pickFolder: () => invoke<string | null>("pick_folder"),
   sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>

@@ -13,6 +13,7 @@ import type {
   SourceRow,
   ToolApproval,
   ToolEventPayload,
+  ToolRunRow,
 } from "../types";
 import Sidebar from "./Sidebar";
 import ChatMessage from "./Message";
@@ -44,6 +45,7 @@ export default function ChatView(props: Props) {
   const [webEnabled, setWebEnabled] = createSignal(true);
   const [sourcesByMessage, setSourcesByMessage] = createSignal<Record<string, SourceRow[]>>({});
   const [approval, setApproval] = createSignal<ToolApproval | null>(null);
+  const [toolRuns, setToolRuns] = createSignal<ToolRunRow[] | null>(null);
   const [context, setContext] = createSignal<ContextUsage | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -199,6 +201,16 @@ export default function ChatView(props: Props) {
     if (!path) return;
     try {
       await api.openPath(path);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const openToolHistory = async () => {
+    const id = activeId();
+    if (!id) return;
+    try {
+      setToolRuns(await api.toolRunsList(id, 20));
     } catch (err) {
       setError(String(err));
     }
@@ -654,6 +666,9 @@ export default function ChatView(props: Props) {
               полный доступ
             </span>
           </Show>
+          <button class="btn small" title="Последние вызовы инструментов" onClick={openToolHistory}>
+            🧰 История
+          </button>
         </div>
 
         <Show when={error()}>
@@ -842,6 +857,40 @@ export default function ChatView(props: Props) {
               >
                 Отклонить
               </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={toolRuns()}>
+        <div class="modal-overlay" onClick={() => setToolRuns(null)}>
+          <div class="modal" onClick={(event) => event.stopPropagation()}>
+            <header class="modal-head">
+              <strong>История инструментов</strong>
+              <button class="icon-btn" onClick={() => setToolRuns(null)}>
+                ✕
+              </button>
+            </header>
+            <div class="tool-history">
+              <For each={toolRuns()!}>
+                {(run) => (
+                  <div class="tool-run">
+                    <div class="row space-between">
+                      <strong>
+                        {run.ok ? "✓" : "✗"} {run.tool}
+                      </strong>
+                      <span class="muted small">{run.created_at.slice(11, 19)}</span>
+                    </div>
+                    <Show when={run.path}>
+                      <div class="muted small mono">{run.path}</div>
+                    </Show>
+                    <div class="small">{run.summary ?? ""}</div>
+                  </div>
+                )}
+              </For>
+              <Show when={toolRuns()!.length === 0}>
+                <p class="muted small">Пока пусто — модель ещё не вызывала инструменты.</p>
+              </Show>
             </div>
           </div>
         </div>

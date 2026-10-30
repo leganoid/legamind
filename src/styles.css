@@ -1384,3 +1384,22 @@ label.inline {
   max-height: 40vh;
   overflow: auto;
 }
+
+/* ---------------------------------------------------------------- история инструментов */
+.tool-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.tool-run {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}

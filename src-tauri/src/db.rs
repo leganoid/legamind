@@ -140,6 +140,20 @@ pub struct SourceRow {
     pub created_at: String,
 }
 
+/// Один вызов инструмента M6 в рамках сессии.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolRunRow {
+    pub id: String,
+    pub session_id: String,
+    pub request_id: Option<String>,
+    pub tool: String,
+    pub path: Option<String>,
+    pub ok: bool,
+    pub summary: Option<String>,
+    pub output: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebateRow {
     pub id: String,
@@ -447,6 +461,27 @@ impl Db {
             // Уровни рассуждений, которые рекламирует провайдер (/models → effort.supported_levels).
             conn.execute_batch("ALTER TABLE provider_models ADD COLUMN efforts TEXT;")?;
             conn.execute("INSERT INTO schema_version (version) VALUES (7)", [])?;
+        }
+
+        if current < 8 {
+            // История вызовов инструментов M6 (чтобы модель помнила, что уже делала).
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS tool_runs (
+                  id TEXT PRIMARY KEY,
+                  session_id TEXT NOT NULL,
+                  request_id TEXT,
+                  tool TEXT NOT NULL,
+                  path TEXT,
+                  ok INTEGER NOT NULL DEFAULT 1,
+                  summary TEXT,
+                  output TEXT,
+                  created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_tool_runs_session ON tool_runs(session_id);
+                "#,
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (8)", [])?;
         }
         Ok(())
     }
@@ -914,6 +949,67 @@ impl Db {
         drop(stmt);
         conn.execute("DELETE FROM messages WHERE session_id = ?1", params![session_id])?;
         Ok(ids)
+    }
+
+    // ------------------------------------------------------------------ инструменты
+    pub fn tool_run_add(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        tool: &str,
+        path: Option<&str>,
+        ok: bool,
+        summary: &str,
+        output: &str,
+    ) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO tool_runs
+             (id, session_id, request_id, tool, path, ok, summary, output, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                new_id(),
+                session_id,
+                request_id,
+                tool,
+                path,
+                ok as i64,
+                summary,
+                output,
+                now()
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn tool_runs_recent(&self, session_id: &str, limit: usize) -> Result<Vec<ToolRunRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, request_id, tool, path, ok, summary, output, created_at
+             FROM tool_runs WHERE session_id = ?1 ORDER BY rowid DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![session_id, limit as i64], |row| {
+                Ok(ToolRunRow {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    request_id: row.get(2)?,
+                    tool: row.get(3)?,
+                    path: row.get(4)?,
+                    ok: row.get::<_, i64>(5)? != 0,
+                    summary: row.get(6)?,
+                    output: row.get(7)?,
+                    created_at: row.get(8)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn tool_runs_delete(&self, session_id: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute("DELETE FROM tool_runs WHERE session_id = ?1", params![session_id])?;
+        Ok(())
     }
 
     // ------------------------------------------------------------------ навыки

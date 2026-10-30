@@ -529,7 +529,8 @@ pub async fn execute_call(
         },
     );
 
-    let execution = match tool.as_str() {
+    let result: Result<ToolExecution> = async {
+        match tool.as_str() {
         "list_dir" | "ls" => list_dir(workdir, trust, &path),
         "read_file" | "read" => read_file(workdir, trust, &path),
         "write_file" | "write" => {
@@ -611,9 +612,24 @@ pub async fn execute_call(
             Ok(execution)
         }
         other => bail!("Неизвестный инструмент: {other}"),
-    };
+        }
+    }
+    .await;
 
-    let execution = execution?;
+    let (ok, summary, output) = match &result {
+        Ok(execution) => (true, execution.summary.clone(), execution.output.clone()),
+        Err(err) => (false, format!("ошибка: {err}"), err.to_string()),
+    };
+    let _ = state.db.tool_run_add(
+        session_id,
+        request_id,
+        &tool,
+        Some(&path),
+        ok,
+        &summary,
+        &output,
+    );
+
     let _ = app.emit(
         "tool:done",
         ToolEventPayload {
@@ -621,12 +637,51 @@ pub async fn execute_call(
             session_id: session_id.to_string(),
             tool: tool.clone(),
             path: Some(path),
-            summary: Some(execution.summary.clone()),
-            ok: true,
+            summary: Some(summary),
+            ok,
         },
     );
-    let _ = state;
-    Ok(execution)
+    result
+}
+
+/// Блок «что уже делали» для system-промпта (последние вызовы инструментов).
+pub fn history_prompt(runs: &[crate::db::ToolRunRow]) -> Option<String> {
+    if runs.is_empty() {
+        return None;
+    }
+    let mut out = String::from("Что уже делали с файлами в этой сессии (последние вызовы):\n");
+    for run in runs.iter().take(5) {
+        let mark = if run.ok { "✓" } else { "✗" };
+        let path = run.path.clone().unwrap_or_default();
+        out.push_str(&format!(
+            "{mark} {} {} — {}\n",
+            run.tool,
+            path,
+            run.summary.clone().unwrap_or_default()
+        ));
+        if let Some(output) = run.output.as_deref().filter(|text| !text.trim().is_empty()) {
+            let snippet: String = output.chars().take(400).collect();
+            out.push_str("  ");
+            out.push_str(&snippet.replace('\n', "\n  "));
+            out.push('\n');
+        }
+        if out.chars().count() > 3500 {
+            break;
+        }
+    }
+    Some(out.trim_end().to_string())
+}
+
+#[tauri::command]
+pub async fn tool_runs_list(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    limit: Option<usize>,
+) -> Result<Vec<crate::db::ToolRunRow>, String> {
+    state
+        .db
+        .tool_runs_recent(&session_id, limit.unwrap_or(20).clamp(1, 100))
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -703,5 +758,24 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let result = execute_command(&dir, "echo hello").await.expect("command");
         assert!(result.output.contains("hello"), "{}", result.output);
+    }
+
+    #[test]
+    fn history_prompt_contains_runs() {
+        let runs = vec![crate::db::ToolRunRow {
+            id: "1".into(),
+            session_id: "s".into(),
+            request_id: Some("r".into()),
+            tool: "read_file".into(),
+            path: Some("notes.md".into()),
+            ok: true,
+            summary: Some("read_file notes.md → 42 символов".into()),
+            output: Some("Файл notes.md:\nпривет".into()),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        }];
+        let block = history_prompt(&runs).expect("history");
+        assert!(block.contains("read_file"));
+        assert!(block.contains("notes.md"));
+        assert!(block.contains("привет"));
     }
 }
