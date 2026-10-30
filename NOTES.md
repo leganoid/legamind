@@ -336,3 +336,6 @@ crate и lib (`legamind`, `legamind_lib`), exe, MSI, UI-логотип, system-�
 в `app.log` строки `migrated data from com.legamind.app` и `migrated key for deepseek`;
 чат с DeepSeek-V4.1-Flash отвечает, значит ключ перенесён. Старая папка оставлена как резерв
 (бэкап также в `.tools/backup-appdata-legamind`).
+
+Репозиторий также переименован: `C:\Projects\ai\legamind` → `C:\Projects\ai\legamind`
+(пути в `.cargo/config.toml` обновлены, сборка и все тесты из новой папки проходят).
