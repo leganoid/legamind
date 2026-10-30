@@ -171,6 +171,26 @@ pub struct ToolBackupRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagChunkRow {
+    pub id: String,
+    pub path: String,
+    pub chunk_index: i64,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RagHitRow {
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RagStats {
+    pub chunks: i64,
+    pub files: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebateRow {
     pub id: String,
     pub task: String,
@@ -521,6 +541,24 @@ impl Db {
                 "#,
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (9)", [])?;
+        }
+
+        if current < 10 {
+            // Локальный RAG: чанки файлов рабочей папки и полнотекстовый индекс.
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS rag_chunks (
+                  id TEXT PRIMARY KEY,
+                  path TEXT NOT NULL,
+                  chunk_index INTEGER NOT NULL,
+                  content TEXT NOT NULL,
+                  created_at TEXT NOT NULL
+                );
+                CREATE VIRTUAL TABLE IF NOT EXISTS rag_fts
+                  USING fts5(chunk_id UNINDEXED, path UNINDEXED, content, tokenize='unicode61');
+                "#,
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (10)", [])?;
         }
         Ok(())
     }
@@ -1133,6 +1171,64 @@ impl Db {
             params![id],
         )?;
         Ok(())
+    }
+
+    // ------------------------------------------------------------------ RAG
+    pub fn rag_clear(&self) -> Result<()> {
+        let conn = self.conn();
+        conn.execute("DELETE FROM rag_fts", [])?;
+        conn.execute("DELETE FROM rag_chunks", [])?;
+        Ok(())
+    }
+
+    pub fn rag_add_chunk(&self, path: &str, chunk_index: i64, content: &str) -> Result<()> {
+        let conn = self.conn();
+        let id = new_id();
+        conn.execute(
+            "INSERT INTO rag_chunks (id, path, chunk_index, content, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, path, chunk_index, content, now()],
+        )?;
+        conn.execute(
+            "INSERT INTO rag_fts (chunk_id, path, content) VALUES (?1, ?2, ?3)",
+            params![id, path, content],
+        )?;
+        Ok(())
+    }
+
+    pub fn rag_search(&self, query: &str, limit: usize) -> Result<Vec<RagHitRow>> {
+        let fts = fts_query(query);
+        if fts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT c.path, c.content
+             FROM rag_fts f JOIN rag_chunks c ON c.id = f.chunk_id
+             WHERE rag_fts MATCH ?1
+             ORDER BY bm25(rag_fts)
+             LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![fts, limit as i64], |row| {
+                Ok(RagHitRow {
+                    path: row.get(0)?,
+                    content: row.get(1)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn rag_stats(&self) -> Result<RagStats> {
+        let conn = self.conn();
+        let chunks: i64 = conn.query_row("SELECT COUNT(*) FROM rag_chunks", [], |row| row.get(0))?;
+        let files: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT path) FROM rag_chunks",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(RagStats { chunks, files })
     }
 
     // ------------------------------------------------------------------ навыки

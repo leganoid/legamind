@@ -343,6 +343,11 @@ export interface ToolRunRow {
   created_at: string;
 }
 
+export interface RagStats {
+  chunks: number;
+  files: number;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

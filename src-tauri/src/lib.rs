@@ -8,6 +8,7 @@ pub mod learning;
 pub mod memory;
 pub mod models;
 pub mod providers;
+pub mod rag;
 pub mod secrets;
 pub mod sidecar;
 pub mod skills;
@@ -311,6 +312,8 @@ pub fn run() {
             tools::tool_approve,
             tools::tool_runs_list,
             tools::tool_undo_last,
+            rag::rag_reindex,
+            rag::rag_status,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

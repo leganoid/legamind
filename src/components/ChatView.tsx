@@ -227,6 +227,18 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const indexProject = async () => {
+    const id = activeId();
+    if (!id) return;
+    try {
+      setNotice("Индексирую рабочую папку…");
+      const stats = await api.ragReindex(id);
+      setNotice(`Индекс готов: ${stats.chunks} фрагментов из ${stats.files} файлов`);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const toggleWeb = async () => {
     try {
       const config = await api.webConfigSet({ enabled: !webEnabled() });
@@ -682,6 +694,13 @@ export default function ChatView(props: Props) {
           </button>
           <button class="btn small" title="Отменить последнее изменение файла" onClick={undoLastChange}>
             ↩ Отменить
+          </button>
+          <button
+            class="btn small"
+            title="Проиндексировать рабочую папку для поиска по проекту"
+            onClick={indexProject}
+          >
+            📚 Индекс
           </button>
         </div>
 

@@ -29,6 +29,7 @@ import type {
   SkillInput,
   SourceRow,
   ToolRunRow,
+  RagStats,
   WebConfigView,
   WebResult,
   WebTestResult,
@@ -116,6 +117,8 @@ export const api = {
   toolRunsList: (sessionId: string, limit = 20) =>
     invoke<ToolRunRow[]>("tool_runs_list", { sessionId, limit }),
   toolUndoLast: (sessionId: string) => invoke<string>("tool_undo_last", { sessionId }),
+  ragReindex: (sessionId: string) => invoke<RagStats>("rag_reindex", { sessionId }),
+  ragStatus: () => invoke<RagStats>("rag_status"),
 
   pickFolder: () => invoke<string | null>("pick_folder"),
   sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>

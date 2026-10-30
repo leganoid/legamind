@@ -549,6 +549,7 @@ async fn run_chat(
                 let workdir_path = std::path::PathBuf::from(&workdir);
                 let mut conversation = messages.clone();
                 let mut history_runs = 0usize;
+                let mut rag_used = false;
                 if let Some(system) = conversation.first_mut() {
                     system.content.push_str("\n\n");
                     system.content.push_str(&crate::tools::tools_prompt(&workdir, &trust));
@@ -559,12 +560,17 @@ async fn run_chat(
                             system.content.push_str(&history);
                         }
                     }
+                    if let Some(rag) = crate::rag::context_block(&state.db, &last_user, 5) {
+                        rag_used = true;
+                        system.content.push_str("\n\n");
+                        system.content.push_str(&rag);
+                    }
                 }
                 params.max_tokens = params.max_tokens.max(1536);
                 log_line(
                     "prompts.log",
                     &format!(
-                        "=== tools {request_id} session={session_id} workdir={workdir} history_runs={history_runs}"
+                        "=== tools {request_id} session={session_id} workdir={workdir} history_runs={history_runs} rag={rag_used}"
                     ),
                 );
 
