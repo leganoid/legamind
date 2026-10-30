@@ -118,7 +118,7 @@ export const api = {
     invoke<ToolRunRow[]>("tool_runs_list", { sessionId, limit }),
   toolUndoLast: (sessionId: string) => invoke<string>("tool_undo_last", { sessionId }),
   ragReindex: (sessionId: string) => invoke<RagStats>("rag_reindex", { sessionId }),
-  ragStatus: () => invoke<RagStats>("rag_status"),
+  ragStatus: (sessionId: string) => invoke<RagStats>("rag_status", { sessionId }),
   ragGetEnabled: () => invoke<boolean>("rag_get_enabled"),
   ragSetEnabled: (enabled: boolean) => invoke<boolean>("rag_set_enabled", { enabled }),
 

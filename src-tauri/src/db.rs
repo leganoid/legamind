@@ -560,6 +560,19 @@ impl Db {
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (10)", [])?;
         }
+
+        if current < 11 {
+            // RAG привязывается к рабочей папке (root), чтобы проекты не перетирали индекс.
+            conn.execute_batch(
+                r#"
+                ALTER TABLE rag_chunks ADD COLUMN root TEXT;
+                CREATE INDEX IF NOT EXISTS idx_rag_root ON rag_chunks(root);
+                DELETE FROM rag_fts;
+                DELETE FROM rag_chunks;
+                "#,
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (11)", [])?;
+        }
         Ok(())
     }
 
@@ -692,6 +705,8 @@ impl Db {
 
     pub fn session_delete(&self, id: &str) -> Result<()> {
         let conn = self.conn();
+        conn.execute("DELETE FROM message_sources WHERE session_id = ?1", params![id])?;
+        conn.execute("DELETE FROM messages WHERE session_id = ?1", params![id])?;
         conn.execute("DELETE FROM tool_runs WHERE session_id = ?1", params![id])?;
         conn.execute("DELETE FROM tool_backups WHERE session_id = ?1", params![id])?;
         conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
@@ -1176,20 +1191,33 @@ impl Db {
     }
 
     // ------------------------------------------------------------------ RAG
-    pub fn rag_clear(&self) -> Result<()> {
+    pub fn rag_clear(&self, root: &str) -> Result<()> {
         let conn = self.conn();
-        conn.execute("DELETE FROM rag_fts", [])?;
-        conn.execute("DELETE FROM rag_chunks", [])?;
+        let mut stmt = conn.prepare("SELECT id FROM rag_chunks WHERE root = ?1")?;
+        let ids = stmt
+            .query_map(params![root], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        for id in ids {
+            conn.execute("DELETE FROM rag_fts WHERE chunk_id = ?1", params![id])?;
+        }
+        conn.execute("DELETE FROM rag_chunks WHERE root = ?1", params![root])?;
         Ok(())
     }
 
-    pub fn rag_add_chunk(&self, path: &str, chunk_index: i64, content: &str) -> Result<()> {
+    pub fn rag_add_chunk(
+        &self,
+        root: &str,
+        path: &str,
+        chunk_index: i64,
+        content: &str,
+    ) -> Result<()> {
         let conn = self.conn();
         let id = new_id();
         conn.execute(
-            "INSERT INTO rag_chunks (id, path, chunk_index, content, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, path, chunk_index, content, now()],
+            "INSERT INTO rag_chunks (id, root, path, chunk_index, content, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, root, path, chunk_index, content, now()],
         )?;
         conn.execute(
             "INSERT INTO rag_fts (chunk_id, path, content) VALUES (?1, ?2, ?3)",
@@ -1198,7 +1226,7 @@ impl Db {
         Ok(())
     }
 
-    pub fn rag_search(&self, query: &str, limit: usize) -> Result<Vec<RagHitRow>> {
+    pub fn rag_search(&self, root: &str, query: &str, limit: usize) -> Result<Vec<RagHitRow>> {
         let fts = fts_query(query);
         if fts.is_empty() {
             return Ok(Vec::new());
@@ -1207,12 +1235,12 @@ impl Db {
         let mut stmt = conn.prepare(
             "SELECT c.path, c.content
              FROM rag_fts f JOIN rag_chunks c ON c.id = f.chunk_id
-             WHERE rag_fts MATCH ?1
+             WHERE c.root = ?1 AND rag_fts MATCH ?2
              ORDER BY bm25(rag_fts)
-             LIMIT ?2",
+             LIMIT ?3",
         )?;
         let rows = stmt
-            .query_map(params![fts, limit as i64], |row| {
+            .query_map(params![root, fts, limit as i64], |row| {
                 Ok(RagHitRow {
                     path: row.get(0)?,
                     content: row.get(1)?,
@@ -1222,29 +1250,37 @@ impl Db {
         Ok(rows)
     }
 
-    pub fn rag_stats(&self) -> Result<RagStats> {
+    pub fn rag_stats(&self, root: &str) -> Result<RagStats> {
         let conn = self.conn();
-        let chunks: i64 = conn.query_row("SELECT COUNT(*) FROM rag_chunks", [], |row| row.get(0))?;
+        let chunks: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM rag_chunks WHERE root = ?1",
+            params![root],
+            |row| row.get(0),
+        )?;
         let files: i64 = conn.query_row(
-            "SELECT COUNT(DISTINCT path) FROM rag_chunks",
-            [],
+            "SELECT COUNT(DISTINCT path) FROM rag_chunks WHERE root = ?1",
+            params![root],
             |row| row.get(0),
         )?;
         Ok(RagStats { chunks, files })
     }
 
     /// Убирает из индекса все чанки одного файла.
-    pub fn rag_delete_path(&self, path: &str) -> Result<()> {
+    pub fn rag_delete_path(&self, root: &str, path: &str) -> Result<()> {
         let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT id FROM rag_chunks WHERE path = ?1")?;
+        let mut stmt =
+            conn.prepare("SELECT id FROM rag_chunks WHERE root = ?1 AND path = ?2")?;
         let ids = stmt
-            .query_map(params![path], |row| row.get::<_, String>(0))?
+            .query_map(params![root, path], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
         drop(stmt);
         for id in ids {
-            let _ = conn.execute("DELETE FROM rag_fts WHERE chunk_id = ?1", params![id]);
+            conn.execute("DELETE FROM rag_fts WHERE chunk_id = ?1", params![id])?;
         }
-        conn.execute("DELETE FROM rag_chunks WHERE path = ?1", params![path])?;
+        conn.execute(
+            "DELETE FROM rag_chunks WHERE root = ?1 AND path = ?2",
+            params![root, path],
+        )?;
         Ok(())
     }
 
@@ -1772,6 +1808,31 @@ mod tests {
         assert_eq!(db.session_get(&s.id).unwrap().unwrap().title, "Тема");
         db.session_delete(&s.id).unwrap();
         assert!(db.messages_list(&s.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn session_delete_cleans_children() {
+        let db = Db::open_memory().unwrap();
+        let s = db.session_create("Удаляемая", "local/qwen-1.5b").unwrap();
+        db.message_add(&s.id, "user", "hi", None, None).unwrap();
+        db.tool_run_add(&s.id, "r1", "read_file", Some("a.md"), true, "ok", "out")
+            .unwrap();
+        db.tool_backup_add(
+            &s.id,
+            "r1",
+            "write_file",
+            "write",
+            "C:\\tmp\\a.md",
+            None,
+            None,
+            true,
+        )
+        .unwrap();
+        db.session_delete(&s.id).unwrap();
+        assert!(db.session_get(&s.id).unwrap().is_none());
+        assert!(db.messages_list(&s.id).unwrap().is_empty());
+        assert!(db.tool_runs_recent(&s.id, 10).unwrap().is_empty());
+        assert!(db.tool_backup_last(&s.id).unwrap().is_none());
     }
 
     #[test]

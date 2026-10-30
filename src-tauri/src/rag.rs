@@ -125,7 +125,8 @@ fn walk(root: &Path, current: &Path, out: &mut Vec<PathBuf>, depth: usize) {
 
 /// Полностью переиндексирует рабочую папку.
 pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
-    db.rag_clear()?;
+    let root_key = root.to_string_lossy().to_string();
+    db.rag_clear(&root_key)?;
     let mut files = Vec::new();
     walk(root, root, &mut files, 0);
     files.sort();
@@ -147,7 +148,7 @@ pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
             if total_chunks >= MAX_CHUNKS {
                 break;
             }
-            db.rag_add_chunk(&relative, index as i64, chunk)?;
+            db.rag_add_chunk(&root_key, &relative, index as i64, chunk)?;
             total_chunks += 1;
         }
     }
@@ -159,11 +160,12 @@ pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
 
 /// Обновляет в индексе один файл (после записи/правки/удаления).
 pub fn reindex_file(db: &crate::db::Db, root: &Path, file: &Path) -> Result<()> {
+    let root_key = root.to_string_lossy().to_string();
     let relative = file
         .strip_prefix(root)
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|_| file.to_string_lossy().to_string());
-    db.rag_delete_path(&relative)?;
+    db.rag_delete_path(&root_key, &relative)?;
     if !file.is_file() {
         return Ok(());
     }
@@ -174,22 +176,27 @@ pub fn reindex_file(db: &crate::db::Db, root: &Path, file: &Path) -> Result<()> 
         .iter()
         .enumerate()
     {
-        db.rag_add_chunk(&relative, index as i64, chunk)?;
+        db.rag_add_chunk(&root_key, &relative, index as i64, chunk)?;
     }
     Ok(())
 }
 
 /// Обновляет файл в индексе, только если индекс уже существует.
 pub fn touch_file(db: &crate::db::Db, root: &Path, file: &Path) {
-    let has_index = db.rag_stats().map(|stats| stats.chunks > 0).unwrap_or(false);
+    let root_key = root.to_string_lossy().to_string();
+    let has_index = db
+        .rag_stats(&root_key)
+        .map(|stats| stats.chunks > 0)
+        .unwrap_or(false);
     if has_index {
         let _ = reindex_file(db, root, file);
     }
 }
 
 /// Блок релевантных фрагментов для system-промпта.
-pub fn context_block(db: &crate::db::Db, query: &str, limit: usize) -> Option<String> {
-    let hits = db.rag_search(query, limit).ok()?;
+pub fn context_block(db: &crate::db::Db, root: &Path, query: &str, limit: usize) -> Option<String> {
+    let root_key = root.to_string_lossy().to_string();
+    let hits = db.rag_search(&root_key, query, limit).ok()?;
     if hits.is_empty() {
         return None;
     }
@@ -231,8 +238,22 @@ pub async fn rag_reindex(
 }
 
 #[tauri::command]
-pub async fn rag_status(state: State<'_, AppState>) -> Result<crate::db::RagStats, String> {
-    state.db.rag_stats().map_err(|e| e.to_string())
+pub async fn rag_status(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<crate::db::RagStats, String> {
+    let workdir = state
+        .db
+        .session_get(&session_id)
+        .map_err(|e| e.to_string())?
+        .and_then(|session| session.workdir);
+    match workdir {
+        Some(root) => state
+            .db
+            .rag_stats(&root)
+            .map_err(|e| e.to_string()),
+        None => Ok(crate::db::RagStats { chunks: 0, files: 0 }),
+    }
 }
 
 #[tauri::command]
@@ -282,19 +303,48 @@ mod tests {
         std::fs::write(&file, "версия один").unwrap();
 
         let db = crate::db::Db::open_memory().unwrap();
+        let root = dir.to_string_lossy().to_string();
         index_workdir(&db, &dir).expect("index");
-        assert!(db.rag_search("уникальное", 5).unwrap().is_empty());
+        assert!(db.rag_search(&root, "уникальное", 5).unwrap().is_empty());
 
         std::fs::write(&file, "версия два уникальное").unwrap();
         reindex_file(&db, &dir, &file).expect("reindex");
-        let hits = db.rag_search("уникальное", 5).unwrap();
+        let hits = db.rag_search(&root, "уникальное", 5).unwrap();
         assert!(!hits.is_empty());
         assert!(hits[0].content.contains("уникальное"));
 
         std::fs::remove_file(&file).unwrap();
         reindex_file(&db, &dir, &file).expect("remove");
-        assert!(db.rag_search("уникальное", 5).unwrap().is_empty());
-        assert_eq!(db.rag_stats().unwrap().files, 0);
+        assert!(db.rag_search(&root, "уникальное", 5).unwrap().is_empty());
+        assert_eq!(db.rag_stats(&root).unwrap().files, 0);
+    }
+
+    #[test]
+    fn index_is_isolated_per_project() {
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("rag-isolation");
+        let _ = std::fs::remove_dir_all(&base);
+        let one = base.join("one");
+        let two = base.join("two");
+        std::fs::create_dir_all(&one).unwrap();
+        std::fs::create_dir_all(&two).unwrap();
+        std::fs::write(one.join("a.md"), "проект альфа уникальное").unwrap();
+        std::fs::write(two.join("b.md"), "проект бета уникальное").unwrap();
+
+        let db = crate::db::Db::open_memory().unwrap();
+        index_workdir(&db, &one).expect("index one");
+        index_workdir(&db, &two).expect("index two");
+
+        let root_one = one.to_string_lossy().to_string();
+        let root_two = two.to_string_lossy().to_string();
+        let hits_one = db.rag_search(&root_one, "уникальное", 5).unwrap();
+        let hits_two = db.rag_search(&root_two, "уникальное", 5).unwrap();
+        assert!(hits_one.iter().all(|hit| hit.path.contains("a.md")));
+        assert!(hits_two.iter().all(|hit| hit.path.contains("b.md")));
+        assert_eq!(db.rag_stats(&root_one).unwrap().files, 1);
+        assert_eq!(db.rag_stats(&root_two).unwrap().files, 1);
     }
 
     #[test]
@@ -318,10 +368,11 @@ mod tests {
         assert_eq!(stats.files, 2);
         assert!(stats.chunks >= 2);
 
-        let hits = db.rag_search("CRC32", 5).expect("search");
+        let root = dir.to_string_lossy().to_string();
+        let hits = db.rag_search(&root, "CRC32", 5).expect("search");
         assert!(!hits.is_empty());
         assert!(hits.iter().any(|hit| hit.path.contains("notes.md")));
-        let block = context_block(&db, "zstd dump", 5).expect("block");
+        let block = context_block(&db, &dir, "zstd dump", 5).expect("block");
         assert!(block.contains("main.rs"), "{block}");
     }
 }

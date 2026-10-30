@@ -391,6 +391,15 @@ export default function ChatView(props: Props) {
   };
 
   const stop = async () => {
+    const current = approval();
+    if (current) {
+      setApproval(null);
+      try {
+        await api.toolApprove(current.approval_id, false);
+      } catch {
+        /* подтверждение уже истекло */
+      }
+    }
     const id = requestId();
     if (id) await api.chatStop(id);
   };
@@ -508,6 +517,7 @@ export default function ChatView(props: Props) {
         setRequestId(null);
         setStreamText("");
         setStatusText(null);
+        setApproval(null);
         if (event.payload.context) setContext(event.payload.context);
         if (event.payload.stopped) setNotice("Генерация остановлена");
         await loadSources(event.payload.session_id);
