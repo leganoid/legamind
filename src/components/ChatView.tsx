@@ -785,26 +785,42 @@ export default function ChatView(props: Props) {
           <div class="modal">
             <header class="modal-head">
               <strong>
-                {approval()!.is_new ? "Создать файл" : "Изменить файл"}: {approval()!.relative}
+                {approval()!.kind === "command"
+                  ? "Выполнить команду"
+                  : `${approval()!.is_new ? "Создать файл" : "Изменить файл"}: ${
+                      approval()!.relative ?? approval()!.path ?? ""
+                    }`}
               </strong>
-              <span class="muted small">{approval()!.bytes} байт</span>
+              <Show when={approval()!.kind !== "command"}>
+                <span class="muted small">{approval()!.bytes} байт</span>
+              </Show>
             </header>
-            <div class="muted small mono">{approval()!.path}</div>
-            <pre class="diff-view">
-              <For each={approval()!.diff.split("\n")}>
-                {(line) => (
-                  <div
-                    classList={{
-                      "diff-line": true,
-                      add: line.startsWith("+"),
-                      del: line.startsWith("-"),
-                    }}
-                  >
-                    {line || " "}
-                  </div>
-                )}
-              </For>
-            </pre>
+            <Show
+              when={approval()!.kind === "command"}
+              fallback={
+                <>
+                  <div class="muted small mono">{approval()!.path}</div>
+                  <pre class="diff-view">
+                    <For each={(approval()!.diff ?? "").split("\n")}>
+                      {(line) => (
+                        <div
+                          classList={{
+                            "diff-line": true,
+                            add: line.startsWith("+"),
+                            del: line.startsWith("-"),
+                          }}
+                        >
+                          {line || " "}
+                        </div>
+                      )}
+                    </For>
+                  </pre>
+                </>
+              }
+            >
+              <pre class="command-view">{approval()!.command}</pre>
+              <div class="muted small mono">cwd: {approval()!.cwd}</div>
+            </Show>
             <div class="modal-actions">
               <button
                 class="btn primary"
@@ -814,7 +830,7 @@ export default function ChatView(props: Props) {
                   if (current) await api.toolApprove(current.approval_id, true);
                 }}
               >
-                Разрешить запись
+                {approval()?.kind === "command" ? "Выполнить" : "Разрешить запись"}
               </button>
               <button
                 class="btn ghost"

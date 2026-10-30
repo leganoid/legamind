@@ -30,6 +30,15 @@ pub struct ToolCall {
     pub path: Option<String>,
     #[serde(default)]
     pub content: Option<String>,
+    /// Старый фрагмент для apply_patch.
+    #[serde(default)]
+    pub old: Option<String>,
+    /// Новый фрагмент для apply_patch.
+    #[serde(default, alias = "replace")]
+    pub new: Option<String>,
+    /// Команда для run_command.
+    #[serde(default, alias = "cmd")]
+    pub command: Option<String>,
 }
 
 /// Ищет вызов инструмента в ответе модели: ```tool … ```, ```json … ``` или голый JSON.
@@ -261,6 +270,94 @@ pub fn apply_write(path: &Path, content: &str) -> Result<()> {
     Ok(())
 }
 
+/// Правка фрагмента: old должен встречаться ровно один раз.
+pub fn prepare_patch(
+    workdir: &Path,
+    trust: &str,
+    raw: &str,
+    old: &str,
+    new: &str,
+) -> Result<(WritePreview, PathBuf, String)> {
+    if trust == "read_only" {
+        bail!("Политика доверия «только чтение» запрещает запись");
+    }
+    if new.len() > MAX_WRITE_BYTES {
+        bail!("Новый фрагмент больше {} КБ", MAX_WRITE_BYTES / 1024);
+    }
+    let path = resolve_path(workdir, trust, raw)?;
+    if path.is_dir() {
+        bail!("Это папка, а не файл");
+    }
+    if old.is_empty() {
+        bail!("Поле old пустое: для новой правки укажите точный старый фрагмент");
+    }
+    if !path.is_file() {
+        bail!("Файл не найден: {}", path.display());
+    }
+    let original = read_text(&path)?;
+    let matches = original.matches(old).count();
+    if matches == 0 {
+        bail!("Фрагмент не найден в файле — прочитайте файл и уточните old");
+    }
+    if matches > 1 {
+        bail!("Фрагмент встречается {matches} раз — нужен более точный old");
+    }
+    let updated = original.replacen(old, new, 1);
+    if updated.len() > MAX_WRITE_BYTES {
+        bail!("Итоговый файл больше {} КБ", MAX_WRITE_BYTES / 1024);
+    }
+    let relative = path
+        .strip_prefix(workdir)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string_lossy().to_string());
+    let preview = WritePreview {
+        path: path.to_string_lossy().to_string(),
+        relative,
+        diff: render_diff(&original, &updated),
+        is_new: false,
+        bytes: updated.len(),
+    };
+    Ok((preview, path, updated))
+}
+
+pub async fn execute_command(workdir: &Path, command: &str) -> Result<ToolExecution> {
+    let command = command.trim();
+    if command.is_empty() {
+        bail!("Пустая команда");
+    }
+    let started = std::time::Instant::now();
+    let child = tokio::process::Command::new("cmd")
+        .arg("/C")
+        .arg(command)
+        .current_dir(workdir)
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(60), child)
+        .await
+        .map_err(|_| anyhow::anyhow!("Команда не завершилась за 60 секунд"))??;
+    let code = output.status.code().unwrap_or(-1);
+    let mut text = String::new();
+    text.push_str(&String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.trim().is_empty() {
+        text.push_str("\n[stderr]\n");
+        text.push_str(&stderr);
+    }
+    let truncated: String = text.chars().take(MAX_PROMPT_CHARS).collect();
+    let suffix = if text.chars().count() > MAX_PROMPT_CHARS { "\n… (вывод обрезан)" } else { "" };
+    let output_text = format!(
+        "Команда: `{command}`\nПапка: {}\nКод возврата: {code}\n{truncated}{suffix}",
+        workdir.display()
+    );
+    Ok(ToolExecution {
+        summary: format!(
+            "run_command `{command}` → exit {code} за {:.1} с",
+            started.elapsed().as_secs_f64()
+        ),
+        output: output_text,
+    })
+}
+
 pub fn audit(action: &str, session_id: &str, detail: &str) {
     crate::logging::log_line(
         "audit.log",
@@ -273,11 +370,15 @@ pub struct ApprovalPayload {
     pub approval_id: String,
     pub request_id: String,
     pub session_id: String,
-    pub path: String,
-    pub relative: String,
-    pub diff: String,
+    /// "write" | "command"
+    pub kind: String,
+    pub path: Option<String>,
+    pub relative: Option<String>,
+    pub diff: Option<String>,
     pub is_new: bool,
     pub bytes: usize,
+    pub command: Option<String>,
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -291,6 +392,28 @@ pub struct ToolEventPayload {
 }
 
 /// Ждёт подтверждения пользователя через модалку (oneshot + таймаут).
+pub async fn wait_approval(
+    app: &AppHandle,
+    state: &AppState,
+    mut payload: ApprovalPayload,
+) -> bool {
+    let approval_id = crate::db::new_id();
+    payload.approval_id = approval_id.clone();
+    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    state
+        .approvals
+        .lock()
+        .unwrap()
+        .insert(approval_id.clone(), tx);
+    let _ = app.emit("tool:approval", payload);
+    let approved = matches!(
+        tokio::time::timeout(Duration::from_secs(APPROVAL_TIMEOUT_SECS), rx).await,
+        Ok(Ok(true))
+    );
+    state.approvals.lock().unwrap().remove(&approval_id);
+    approved
+}
+
 pub async fn request_approval(
     app: &AppHandle,
     state: &AppState,
@@ -298,32 +421,52 @@ pub async fn request_approval(
     session_id: &str,
     preview: &WritePreview,
 ) -> bool {
-    let approval_id = crate::db::new_id();
-    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
-    state
-        .approvals
-        .lock()
-        .unwrap()
-        .insert(approval_id.clone(), tx);
-    let _ = app.emit(
-        "tool:approval",
+    wait_approval(
+        app,
+        state,
         ApprovalPayload {
-            approval_id: approval_id.clone(),
+            approval_id: String::new(),
             request_id: request_id.to_string(),
             session_id: session_id.to_string(),
-            path: preview.path.clone(),
-            relative: preview.relative.clone(),
-            diff: preview.diff.clone(),
+            kind: "write".to_string(),
+            path: Some(preview.path.clone()),
+            relative: Some(preview.relative.clone()),
+            diff: Some(preview.diff.clone()),
             is_new: preview.is_new,
             bytes: preview.bytes,
+            command: None,
+            cwd: None,
         },
-    );
-    let approved = matches!(
-        tokio::time::timeout(Duration::from_secs(APPROVAL_TIMEOUT_SECS), rx).await,
-        Ok(Ok(true))
-    );
-    state.approvals.lock().unwrap().remove(&approval_id);
-    approved
+    )
+    .await
+}
+
+pub async fn request_command_approval(
+    app: &AppHandle,
+    state: &AppState,
+    request_id: &str,
+    session_id: &str,
+    command: &str,
+    cwd: &Path,
+) -> bool {
+    wait_approval(
+        app,
+        state,
+        ApprovalPayload {
+            approval_id: String::new(),
+            request_id: request_id.to_string(),
+            session_id: session_id.to_string(),
+            kind: "command".to_string(),
+            path: None,
+            relative: None,
+            diff: None,
+            is_new: false,
+            bytes: 0,
+            command: Some(command.to_string()),
+            cwd: Some(cwd.to_string_lossy().to_string()),
+        },
+    )
+    .await
 }
 
 #[tauri::command]
@@ -342,17 +485,20 @@ pub async fn tool_approve(
 /// Описание протокола инструментов для system-промпта.
 pub fn tools_prompt(workdir: &str, trust: &str) -> String {
     let write_rule = match trust {
-        "read_only" => "Запись запрещена политикой «только чтение» — не вызывай write_file.",
-        _ => "Перед записью пользователь увидит diff и подтвердит её.",
+        "read_only" => "Запись и команды запрещены политикой «только чтение».",
+        _ => "Перед записью и командой пользователь увидит diff/команду и подтвердит.",
     };
     format!(
         "Рабочая папка проекта: `{workdir}`. У тебя есть инструменты:\n\
          - {{\"tool\":\"list_dir\",\"path\":\".\"}} — список файлов;\n\
          - {{\"tool\":\"read_file\",\"path\":\"src/main.rs\"}} — прочитать файл;\n\
-         - {{\"tool\":\"write_file\",\"path\":\"notes.md\",\"content\":\"...\"}} — создать/перезаписать файл.\n\
+         - {{\"tool\":\"write_file\",\"path\":\"notes.md\",\"content\":\"...\"}} — создать/перезаписать файл;\n\
+         - {{\"tool\":\"apply_patch\",\"path\":\"src/main.rs\",\"old\":\"точный старый фрагмент\",\"new\":\"новый фрагмент\"}} — точечная правка;\n\
+         - {{\"tool\":\"run_command\",\"command\":\"cargo test\"}} — команда в рабочей папке.\n\
          Чтобы вызвать инструмент, ответь ТОЛЬКО JSON-объектом в блоке ```tool … ``` без другого текста.\n\
          После результата инструмента продолжи работу. Когда всё готово — дай обычный ответ без блоков tool.\n\
          Пути — относительно рабочей папки (абсолютные запрещены, кроме доверия «полный доступ»).\n\
+         Предпочитай apply_patch перезаписи файла; run_command — для проверок и сборки.\n\
          {write_rule}\n\
          Не выдумывай содержимое файлов: сначала read_file, потом правь."
     )
@@ -406,6 +552,63 @@ pub async fn execute_call(
                     preview.path, preview.bytes, preview.diff
                 ),
             })
+        }
+        "apply_patch" | "patch" | "edit_file" => {
+            let old = call.old.clone().unwrap_or_default();
+            let new = call.new.clone().unwrap_or_default();
+            let (preview, target, updated) =
+                prepare_patch(workdir, trust, &path, &old, &new)?;
+            let approval_session = app.state::<AppState>();
+            if !request_approval(app, &approval_session, request_id, session_id, &preview).await {
+                audit("patch_rejected", session_id, &preview.path);
+                bail!("Пользователь отклонил правку файла");
+            }
+            apply_write(&target, &updated)?;
+            audit(
+                "patch",
+                session_id,
+                &format!("{} ({} B)", preview.path, preview.bytes),
+            );
+            Ok(ToolExecution {
+                summary: format!(
+                    "apply_patch {} → {} B (подтверждено)",
+                    preview.relative, preview.bytes
+                ),
+                output: format!(
+                    "Файл изменён: {} ({} байт).\nDiff:\n{}",
+                    preview.path, preview.bytes, preview.diff
+                ),
+            })
+        }
+        "run_command" | "run" | "shell" | "exec" => {
+            if trust == "read_only" {
+                bail!("Политика доверия «только чтение» запрещает команды");
+            }
+            let command = call
+                .command
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("Не указана команда"))?;
+            let approval_session = app.state::<AppState>();
+            if !request_command_approval(
+                app,
+                &approval_session,
+                request_id,
+                session_id,
+                &command,
+                workdir,
+            )
+            .await
+            {
+                audit("command_rejected", session_id, &command);
+                bail!("Пользователь отклонил команду");
+            }
+            let execution = execute_command(workdir, &command).await?;
+            audit(
+                "command",
+                session_id,
+                &format!("{command} → {}", execution.summary),
+            );
+            Ok(execution)
         }
         other => bail!("Неизвестный инструмент: {other}"),
     };
@@ -465,5 +668,40 @@ mod tests {
         let diff = render_diff("old\n", "old\nnew\n");
         assert!(diff.contains("+new"), "{diff}");
         assert!(diff.contains(" old"), "{diff}");
+    }
+
+    #[test]
+    fn patch_requires_unique_fragment() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("tools-patch");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.txt");
+        std::fs::write(&file, "hello world\n").unwrap();
+
+        let (preview, _, updated) =
+            prepare_patch(&dir, "workspace", "a.txt", "world", "there").expect("patch");
+        assert!(updated.contains("hello there"));
+        assert!(preview.diff.contains("-hello world"));
+        assert!(preview.diff.contains("+hello there"));
+
+        assert!(prepare_patch(&dir, "workspace", "a.txt", "missing", "x").is_err());
+        assert!(prepare_patch(&dir, "read_only", "a.txt", "hello", "x").is_err());
+
+        std::fs::write(&file, "x x\n").unwrap();
+        assert!(prepare_patch(&dir, "workspace", "a.txt", "x", "y").is_err());
+    }
+
+    #[tokio::test]
+    async fn runs_simple_command() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("tools-command");
+        std::fs::create_dir_all(&dir).unwrap();
+        let result = execute_command(&dir, "echo hello").await.expect("command");
+        assert!(result.output.contains("hello"), "{}", result.output);
     }
 }

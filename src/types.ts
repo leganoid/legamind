@@ -310,11 +310,14 @@ export interface ToolApproval {
   approval_id: string;
   request_id: string;
   session_id: string;
-  path: string;
-  relative: string;
-  diff: string;
+  kind: "write" | "command" | string;
+  path: string | null;
+  relative: string | null;
+  diff: string | null;
   is_new: boolean;
   bytes: number;
+  command: string | null;
+  cwd: string | null;
 }
 
 export interface ToolEventPayload {
