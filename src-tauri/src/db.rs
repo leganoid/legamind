@@ -48,6 +48,17 @@ pub struct ChatMessageRow {
     pub created_at: String,
 }
 
+/// Результат поиска по сообщениям (для боковой панели).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageHitRow {
+    pub session_id: String,
+    pub session_title: String,
+    pub message_id: String,
+    pub role: String,
+    pub snippet: String,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryRow {
     pub id: String,
@@ -736,6 +747,44 @@ impl Db {
                     model_id: row.get(4)?,
                     tokens: row.get(5)?,
                     created_at: row.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Поиск по сообщениям и названиям сессий (для панели поиска).
+    pub fn messages_search(&self, query: &str, limit: usize) -> Result<Vec<MessageHitRow>> {
+        let raw = query.trim();
+        if raw.chars().count() < 2 {
+            return Ok(Vec::new());
+        }
+        let escaped = raw
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT m.session_id, s.title, m.id, m.role,
+                    CASE WHEN instr(lower(m.content), lower(?1)) > 0
+                         THEN substr(m.content, max(1, instr(lower(m.content), lower(?1)) - 40), 220)
+                         ELSE substr(m.content, 1, 220) END,
+                    m.created_at
+             FROM messages m JOIN sessions s ON s.id = m.session_id
+             WHERE m.content LIKE ?2 ESCAPE '\\' OR s.title LIKE ?2 ESCAPE '\\'
+             ORDER BY m.rowid DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt
+            .query_map(params![raw, pattern, limit as i64], |row| {
+                Ok(MessageHitRow {
+                    session_id: row.get(0)?,
+                    session_title: row.get(1)?,
+                    message_id: row.get(2)?,
+                    role: row.get(3)?,
+                    snippet: row.get(4)?,
+                    created_at: row.get(5)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1833,6 +1882,20 @@ mod tests {
         assert!(db.messages_list(&s.id).unwrap().is_empty());
         assert!(db.tool_runs_recent(&s.id, 10).unwrap().is_empty());
         assert!(db.tool_backup_last(&s.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn messages_search_finds_and_escapes() {
+        let db = Db::open_memory().unwrap();
+        let s = db.session_create("Прошивка", "local/qwen-1.5b").unwrap();
+        db.message_add(&s.id, "user", "в binres используется JFFS2", None, None)
+            .unwrap();
+        let hits = db.messages_search("JFFS2", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].session_title, "Прошивка");
+        assert!(hits[0].snippet.contains("JFFS2"));
+        assert!(db.messages_search("%", 10).unwrap().is_empty());
+        assert!(db.messages_search("a", 10).unwrap().is_empty());
     }
 
     #[test]

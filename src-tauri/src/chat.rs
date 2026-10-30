@@ -1073,6 +1073,19 @@ pub async fn sources_list(
     state.db.sources_list(&session_id).map_err(|e| e.to_string())
 }
 
+/// Поиск по сообщениям и названиям сессий для боковой панели.
+#[tauri::command]
+pub async fn messages_search(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<crate::db::MessageHitRow>, String> {
+    state
+        .db
+        .messages_search(&query, limit.unwrap_or(20).clamp(1, 100))
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn chat_command(
     app: AppHandle,

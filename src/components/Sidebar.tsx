@@ -1,5 +1,6 @@
-import { For, Show } from "solid-js";
-import type { Session } from "../types";
+import { For, Show, createSignal } from "solid-js";
+import { api } from "../api";
+import type { MessageHitRow, Session } from "../types";
 
 interface Props {
   sessions: Session[];
@@ -11,6 +12,33 @@ interface Props {
 }
 
 export default function Sidebar(props: Props) {
+  const [query, setQuery] = createSignal("");
+  const [hits, setHits] = createSignal<MessageHitRow[]>([]);
+  let timer: number | undefined;
+
+  const filtered = () => {
+    const q = query().trim().toLowerCase();
+    if (!q) return props.sessions;
+    return props.sessions.filter((session) => session.title.toLowerCase().includes(q));
+  };
+
+  const onSearch = (value: string) => {
+    setQuery(value);
+    window.clearTimeout(timer);
+    const q = value.trim();
+    if (q.length < 2) {
+      setHits([]);
+      return;
+    }
+    timer = window.setTimeout(async () => {
+      try {
+        setHits(await api.messagesSearch(q, 15));
+      } catch {
+        setHits([]);
+      }
+    }, 300);
+  };
+
   const rename = (session: Session) => {
     const title = window.prompt("Название сессии", session.title);
     if (title && title.trim() && title.trim() !== session.title) {
@@ -32,11 +60,37 @@ export default function Sidebar(props: Props) {
           + Новая
         </button>
       </div>
+
+      <div class="sidebar-search">
+        <input
+          value={query()}
+          placeholder="Поиск по сессиям и сообщениям"
+          onInput={(event) => onSearch(event.currentTarget.value)}
+        />
+      </div>
+
+      <Show when={query().trim().length >= 2 && hits().length > 0}>
+        <div class="search-results">
+          <div class="muted small pad">Найдено в сообщениях</div>
+          <For each={hits()}>
+            {(hit) => (
+              <button class="search-hit" onClick={() => props.onSelect(hit.session_id)}>
+                <span class="search-hit-title">{hit.session_title}</span>
+                <span class="search-hit-snippet">{hit.snippet}</span>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+
       <div class="session-list">
         <Show when={props.sessions.length === 0}>
           <p class="muted small pad">Пока нет сессий</p>
         </Show>
-        <For each={props.sessions}>
+        <Show when={props.sessions.length > 0 && filtered().length === 0}>
+          <p class="muted small pad">Сессии не найдены</p>
+        </Show>
+        <For each={filtered()}>
           {(session) => (
             <div
               classList={{ "session-item": true, active: session.id === props.activeId }}

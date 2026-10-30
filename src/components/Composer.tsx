@@ -23,12 +23,14 @@ const COMMANDS: CommandHint[] = [
   { cmd: "/pwd", description: "рабочая папка проекта" },
   { cmd: "/workdir", description: "задать рабочую папку", needsArg: true },
   { cmd: "/web", description: "поиск в интернете", needsArg: true },
+  { cmd: "/index", description: "проиндексировать рабочую папку" },
   { cmd: "/help", description: "список команд" },
 ];
 
 /** Ввод: Enter — отправить, Shift+Enter — перенос, Ctrl+Enter — тоже отправить. */
 export default function Composer(props: Props) {
   const [text, setText] = createSignal("");
+  const [hintIndex, setHintIndex] = createSignal(0);
   let inputRef: HTMLTextAreaElement | undefined;
 
   const hints = createMemo(() => {
@@ -50,6 +52,24 @@ export default function Composer(props: Props) {
       setText("");
       return;
     }
+    const list = hints();
+    if (list.length > 0) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setHintIndex((index) => (index + 1) % list.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setHintIndex((index) => (index - 1 + list.length) % list.length);
+        return;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        useHint(list[hintIndex() % list.length]);
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       submit();
@@ -64,6 +84,7 @@ export default function Composer(props: Props) {
 
   const useHint = (hint: CommandHint) => {
     setText(hint.needsArg ? `${hint.cmd} ` : `${hint.cmd} `);
+    setHintIndex(0);
     inputRef?.focus();
   };
 
@@ -72,8 +93,14 @@ export default function Composer(props: Props) {
       <Show when={hints().length > 0}>
         <div class="command-hints">
           <For each={hints()}>
-            {(hint) => (
-              <button class="command-hint" onClick={() => useHint(hint)}>
+            {(hint, index) => (
+              <button
+                classList={{
+                  "command-hint": true,
+                  active: hintIndex() % hints().length === index(),
+                }}
+                onClick={() => useHint(hint)}
+              >
                 <span class="command-name">{hint.cmd}</span>
                 <span class="muted small">{hint.description}</span>
               </button>

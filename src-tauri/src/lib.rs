@@ -305,6 +305,7 @@ pub fn run() {
             chat::context_usage,
             chat::chat_command,
             chat::sources_list,
+            chat::messages_search,
             workspace::pick_folder,
             workspace::session_set_workdir,
             workspace::session_set_policy,

@@ -12,6 +12,15 @@ export interface Session {
   reasoning: string | null;
 }
 
+export interface MessageHitRow {
+  session_id: string;
+  session_title: string;
+  message_id: string;
+  role: string;
+  snippet: string;
+  created_at: string;
+}
+
 export interface ChatMessageRow {
   id: string;
   session_id: string;

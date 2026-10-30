@@ -19,6 +19,7 @@ import type {
   FinetuneStatus,
   LessonRow,
   MemoryRow,
+  MessageHitRow,
   ModelInfo,
   ProviderInput,
   ProviderModelRow,
@@ -40,6 +41,8 @@ export const api = {
   openDataDir: () => invoke<void>("open_data_dir"),
 
   sessionsList: () => invoke<Session[]>("sessions_list"),
+  messagesSearch: (query: string, limit = 20) =>
+    invoke<MessageHitRow[]>("messages_search", { query, limit }),
   sessionsCreate: (modelId: string, title?: string) =>
     invoke<Session>("sessions_create", { title: title ?? null, modelId }),
   sessionsRename: (id: string, title: string) => invoke<void>("sessions_rename", { id, title }),
