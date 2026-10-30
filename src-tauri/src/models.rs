@@ -414,6 +414,7 @@ impl Router<'_> {
         let mut tokens = 0u32;
         let mut stopped = false;
         let mut reported_seconds: Option<f64> = None;
+        let mut reasoning_open = false;
 
         while let Some(chunk) = stream.next().await {
             if cancel.load(Ordering::Relaxed) {
@@ -451,12 +452,32 @@ impl Router<'_> {
                         tokens += 1;
                         on_delta(delta);
                     }
+                    // Рассуждения reasoning-моделей (DeepSeek и др.) приходят отдельным полем.
+                    if let Some(reasoning) = value
+                        .pointer("/choices/0/delta/reasoning_content")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                    {
+                        if !reasoning_open {
+                            text.push_str("<think>\n");
+                            on_delta("<think>\n");
+                            reasoning_open = true;
+                        }
+                        text.push_str(reasoning);
+                        tokens += 1;
+                        on_delta(reasoning);
+                    }
                     // Формат OpenAI-совместимых провайдеров.
                     if let Some(delta) = value
                         .pointer("/choices/0/delta/content")
                         .and_then(|v| v.as_str())
                         .filter(|s| !s.is_empty())
                     {
+                        if reasoning_open {
+                            text.push_str("\n</think>\n\n");
+                            on_delta("\n</think>\n\n");
+                            reasoning_open = false;
+                        }
                         text.push_str(delta);
                         tokens += 1;
                         on_delta(delta);
@@ -472,6 +493,10 @@ impl Router<'_> {
                     }
                 }
             }
+        }
+        if reasoning_open {
+            text.push_str("\n</think>\n");
+            on_delta("\n</think>\n");
         }
         Ok(ChatOutcome {
             text,

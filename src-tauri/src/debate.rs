@@ -415,7 +415,7 @@ async fn run_protocol(
     cancel: &AtomicBool,
 ) -> Result<(String, String, Vec<ScoreEntry>)> {
     let rounds = req.rounds.unwrap_or(2).clamp(1, 3);
-    let max_tokens = req.max_tokens.unwrap_or(768).clamp(256, 2048);
+    let max_tokens = req.max_tokens.unwrap_or(1536).clamp(256, 4096);
     let temperature = req.temperature.unwrap_or(0.7);
     let participants = &req.participants;
     let mut replies: Vec<String> = vec![String::new(); participants.len()];

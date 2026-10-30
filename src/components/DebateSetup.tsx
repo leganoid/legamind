@@ -22,7 +22,7 @@ export default function DebateSetup(props: Props) {
   const [participants, setParticipants] = createSignal<string[]>([]);
   const [rounds, setRounds] = createSignal(2);
   const [judge, setJudge] = createSignal<string>("synthesis");
-  const [maxTokens, setMaxTokens] = createSignal(768);
+  const [maxTokens, setMaxTokens] = createSignal(1536);
   const [error, setError] = createSignal<string | null>(null);
 
   const toggle = (id: string) => {
@@ -106,8 +106,16 @@ export default function DebateSetup(props: Props) {
         <label>
           Судья
           <select value={judge()} onChange={(e) => setJudge(e.currentTarget.value)} disabled={props.busy}>
-            <option value="synthesis">Синтез всех (голосование)</option>
-            <For each={props.models}>{(model) => <option value={model.id}>{model.label}</option>}</For>
+            <option value="synthesis" selected={judge() === "synthesis"}>
+              Синтез всех (голосование)
+            </option>
+            <For each={props.models}>
+              {(model) => (
+                <option value={model.id} selected={judge() === model.id}>
+                  {model.label}
+                </option>
+              )}
+            </For>
           </select>
         </label>
         <label>
@@ -115,10 +123,10 @@ export default function DebateSetup(props: Props) {
           <input
             type="number"
             min={256}
-            max={2048}
-            step={128}
+            max={4096}
+            step={256}
             value={maxTokens()}
-            onInput={(e) => setMaxTokens(Number(e.currentTarget.value) || 768)}
+            onInput={(e) => setMaxTokens(Number(e.currentTarget.value) || 1536)}
             disabled={props.busy}
           />
         </label>

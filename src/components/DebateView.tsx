@@ -12,6 +12,7 @@ import type {
   ScoreEntry,
 } from "../types";
 import DebateSetup, { type DebateLaunch } from "./DebateSetup";
+import { renderMarkdown } from "../markdown";
 
 interface Props {
   models: ModelInfo[];
@@ -233,7 +234,7 @@ export default function DebateView(props: Props) {
                         <span class="message-meta">{turn.seconds!.toFixed(1)} с</span>
                       </Show>
                     </header>
-                    <div class="message-body">{turn.content}</div>
+                    <div class="message-body markdown" innerHTML={renderMarkdown(turn.content)} />
                   </article>
                 )}
               </For>

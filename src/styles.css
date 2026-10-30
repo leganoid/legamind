@@ -1280,3 +1280,27 @@ label.inline {
   border-color: #b04545;
   color: #ff9b97;
 }
+
+/* ---------------------------------------------------------------- рассуждения */
+.think-block {
+  border-left: 2px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  margin: 6px 0;
+  padding: 4px 10px;
+}
+
+.think-block summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.think-text {
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 6px;
+  max-height: 320px;
+  overflow: auto;
+}
