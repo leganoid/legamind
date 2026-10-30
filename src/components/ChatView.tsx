@@ -19,6 +19,7 @@ import Sidebar from "./Sidebar";
 import ChatMessage from "./Message";
 import Composer from "./Composer";
 import ModelPicker from "./ModelPicker";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface Props {
   models: ModelInfo[];
@@ -47,6 +48,7 @@ export default function ChatView(props: Props) {
   const [approval, setApproval] = createSignal<ToolApproval | null>(null);
   const [toolRuns, setToolRuns] = createSignal<ToolRunRow[] | null>(null);
   const [ragEnabled, setRagEnabled] = createSignal(true);
+  const [undoOpen, setUndoOpen] = createSignal(false);
   let projectMenu: HTMLDetailsElement | undefined;
   const [context, setContext] = createSignal<ContextUsage | null>(null);
   const [error, setError] = createSignal<string | null>(null);
@@ -229,10 +231,12 @@ export default function ChatView(props: Props) {
     }
   };
 
-  const undoLastChange = async () => {
+  const undoLastChange = () => setUndoOpen(true);
+
+  const performUndo = async () => {
+    setUndoOpen(false);
     const id = activeId();
     if (!id) return;
-    if (!window.confirm("Отменить последнее изменение файла в этой сессии?")) return;
     try {
       setNotice(await api.toolUndoLast(id));
     } catch (err) {
@@ -1066,6 +1070,15 @@ export default function ChatView(props: Props) {
           </div>
         </div>
       </Show>
+
+      <ConfirmDialog
+        open={undoOpen()}
+        title="Отменить последнее изменение?"
+        message="Файл вернётся к версии до последней правки (для созданного файла — будет удалён)."
+        confirmLabel="Отменить изменение"
+        onConfirm={() => void performUndo()}
+        onCancel={() => setUndoOpen(false)}
+      />
 
       <Show when={toolRuns()}>
         <div class="modal-overlay" onClick={() => setToolRuns(null)}>

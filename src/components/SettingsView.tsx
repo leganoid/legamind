@@ -16,7 +16,15 @@ export default function SettingsView() {
   const [googleCx, setGoogleCx] = createSignal("");
   const [webTest, setWebTest] = createSignal<WebTestResult | null>(null);
   const [testing, setTesting] = createSignal(false);
-  const [tab, setTab] = createSignal<"internet" | "app" | "privacy">("internet");
+  const savedTab = localStorage.getItem("legamind.settings.tab");
+  const [tab, setTab] = createSignal<"internet" | "app" | "privacy">(
+    savedTab === "app" || savedTab === "privacy" ? savedTab : "internet",
+  );
+
+  const chooseTab = (value: "internet" | "app" | "privacy") => {
+    setTab(value);
+    localStorage.setItem("legamind.settings.tab", value);
+  };
 
   const load = async () => setInfo(await api.appInfo());
 
@@ -102,16 +110,16 @@ export default function SettingsView() {
       <div class="tabs">
         <button
           classList={{ tab: true, active: tab() === "internet" }}
-          onClick={() => setTab("internet")}
+          onClick={() => chooseTab("internet")}
         >
           🌐 Интернет
         </button>
-        <button classList={{ tab: true, active: tab() === "app" }} onClick={() => setTab("app")}>
+        <button classList={{ tab: true, active: tab() === "app" }} onClick={() => chooseTab("app")}>
           ⚙ Приложение
         </button>
         <button
           classList={{ tab: true, active: tab() === "privacy" }}
-          onClick={() => setTab("privacy")}
+          onClick={() => chooseTab("privacy")}
         >
           🔒 Приватность
         </button>

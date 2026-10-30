@@ -1,6 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import { api } from "../api";
 import type { MessageHitRow, Session } from "../types";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface Props {
   sessions: Session[];
@@ -14,6 +15,7 @@ interface Props {
 export default function Sidebar(props: Props) {
   const [query, setQuery] = createSignal("");
   const [hits, setHits] = createSignal<MessageHitRow[]>([]);
+  const [pendingDelete, setPendingDelete] = createSignal<Session | null>(null);
   let timer: number | undefined;
 
   const filtered = () => {
@@ -47,9 +49,7 @@ export default function Sidebar(props: Props) {
   };
 
   const remove = (session: Session) => {
-    if (window.confirm(`Удалить сессию «${session.title}»?`)) {
-      props.onDelete(session.id);
-    }
+    setPendingDelete(session);
   };
 
   return (
@@ -125,6 +125,20 @@ export default function Sidebar(props: Props) {
           )}
         </For>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete() !== null}
+        title="Удалить сессию?"
+        message={`«${pendingDelete()?.title ?? ""}» и её сообщения будут удалены. Это действие нельзя отменить.`}
+        confirmLabel="Удалить"
+        danger
+        onConfirm={() => {
+          const session = pendingDelete();
+          setPendingDelete(null);
+          if (session) props.onDelete(session.id);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </aside>
   );
 }

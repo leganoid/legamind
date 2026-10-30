@@ -1619,3 +1619,83 @@ label.inline {
 .step p {
   margin: 0 0 6px;
 }
+
+/* ---------------------------------------------------------------- command palette */
+.palette {
+  width: min(680px, 92vw);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.palette input {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  padding: 14px 16px;
+  outline: none;
+}
+
+.palette-list {
+  overflow: auto;
+  padding: 6px;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-item.active,
+.palette-item:hover {
+  background: var(--panel-2);
+}
+
+.palette-icon {
+  width: 20px;
+  text-align: center;
+}
+
+.palette-label {
+  flex: 1;
+}
+
+.palette-foot {
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.confirm {
+  max-width: 460px;
+}
+
+.confirm-text {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.help-list {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.help-list li {
+  margin-bottom: 8px;
+}
