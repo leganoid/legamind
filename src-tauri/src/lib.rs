@@ -314,6 +314,8 @@ pub fn run() {
             tools::tool_undo_last,
             rag::rag_reindex,
             rag::rag_status,
+            rag::rag_get_enabled,
+            rag::rag_set_enabled,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

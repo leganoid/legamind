@@ -1233,6 +1233,21 @@ impl Db {
         Ok(RagStats { chunks, files })
     }
 
+    /// Убирает из индекса все чанки одного файла.
+    pub fn rag_delete_path(&self, path: &str) -> Result<()> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id FROM rag_chunks WHERE path = ?1")?;
+        let ids = stmt
+            .query_map(params![path], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        for id in ids {
+            let _ = conn.execute("DELETE FROM rag_fts WHERE chunk_id = ?1", params![id]);
+        }
+        conn.execute("DELETE FROM rag_chunks WHERE path = ?1", params![path])?;
+        Ok(())
+    }
+
     // ------------------------------------------------------------------ навыки
     pub fn skills_list(&self) -> Result<Vec<SkillRow>> {
         let conn = self.conn();

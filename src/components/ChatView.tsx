@@ -46,6 +46,8 @@ export default function ChatView(props: Props) {
   const [sourcesByMessage, setSourcesByMessage] = createSignal<Record<string, SourceRow[]>>({});
   const [approval, setApproval] = createSignal<ToolApproval | null>(null);
   const [toolRuns, setToolRuns] = createSignal<ToolRunRow[] | null>(null);
+  const [ragEnabled, setRagEnabled] = createSignal(true);
+  let projectMenu: HTMLDetailsElement | undefined;
   const [context, setContext] = createSignal<ContextUsage | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -234,6 +236,18 @@ export default function ChatView(props: Props) {
       setNotice("Индексирую рабочую папку…");
       const stats = await api.ragReindex(id);
       setNotice(`Индекс готов: ${stats.chunks} фрагментов из ${stats.files} файлов`);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const closeProjectMenu = () => projectMenu?.removeAttribute("open");
+
+  const toggleRag = async () => {
+    try {
+      const next = !ragEnabled();
+      setRagEnabled(await api.ragSetEnabled(next));
+      setNotice(next ? "RAG включён" : "RAG выключен");
     } catch (err) {
       setError(String(err));
     }
@@ -539,6 +553,11 @@ export default function ChatView(props: Props) {
     window.addEventListener("legamind:new-session", newSession);
     onCleanup(() => window.removeEventListener("legamind:new-session", newSession));
     onCleanup(() => unlisteners.forEach((fn) => fn()));
+
+    api
+      .ragGetEnabled()
+      .then(setRagEnabled)
+      .catch(() => {});
   });
 
   // Автопрокрутка вниз при новых сообщениях и дельтах.
@@ -689,19 +708,51 @@ export default function ChatView(props: Props) {
               полный доступ
             </span>
           </Show>
-          <button class="btn small" title="Последние вызовы инструментов" onClick={openToolHistory}>
-            🧰 История
-          </button>
-          <button class="btn small" title="Отменить последнее изменение файла" onClick={undoLastChange}>
-            ↩ Отменить
-          </button>
-          <button
-            class="btn small"
-            title="Проиндексировать рабочую папку для поиска по проекту"
-            onClick={indexProject}
-          >
-            📚 Индекс
-          </button>
+          <details class="menu" ref={projectMenu}>
+            <summary class="btn small">Проект ▾</summary>
+            <div class="menu-items">
+              <button
+                onClick={() => {
+                  closeProjectMenu();
+                  void openWorkdir();
+                }}
+              >
+                📁 Открыть папку
+              </button>
+              <button
+                onClick={() => {
+                  closeProjectMenu();
+                  void indexProject();
+                }}
+              >
+                📚 Индексировать
+              </button>
+              <button
+                onClick={() => {
+                  closeProjectMenu();
+                  void openToolHistory();
+                }}
+              >
+                🧰 История инструментов
+              </button>
+              <button
+                onClick={() => {
+                  closeProjectMenu();
+                  void undoLastChange();
+                }}
+              >
+                ↩ Отменить изменение
+              </button>
+              <button
+                onClick={() => {
+                  closeProjectMenu();
+                  void toggleRag();
+                }}
+              >
+                RAG: {ragEnabled() ? "включён" : "выключен"}
+              </button>
+            </div>
+          </details>
         </div>
 
         <Show when={error()}>

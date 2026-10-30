@@ -560,10 +560,19 @@ async fn run_chat(
                             system.content.push_str(&history);
                         }
                     }
-                    if let Some(rag) = crate::rag::context_block(&state.db, &last_user, 5) {
-                        rag_used = true;
-                        system.content.push_str("\n\n");
-                        system.content.push_str(&rag);
+                    let rag_enabled = state
+                        .db
+                        .setting_get("rag_enabled")
+                        .ok()
+                        .flatten()
+                        .map(|value| value != "0")
+                        .unwrap_or(true);
+                    if rag_enabled {
+                        if let Some(rag) = crate::rag::context_block(&state.db, &last_user, 5) {
+                            rag_used = true;
+                            system.content.push_str("\n\n");
+                            system.content.push_str(&rag);
+                        }
                     }
                 }
                 params.max_tokens = params.max_tokens.max(1536);

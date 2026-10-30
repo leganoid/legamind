@@ -946,6 +946,7 @@ pub async fn execute_call(
                 created,
             );
             apply_write(&target, &content)?;
+            crate::rag::touch_file(&state.db, workdir, &target);
             audit("write", session_id, &format!("{} ({} B)", preview.path, preview.bytes));
             Ok(ToolExecution {
                 summary: format!(
@@ -983,6 +984,7 @@ pub async fn execute_call(
                 false,
             );
             apply_write(&target, &updated)?;
+            crate::rag::touch_file(&state.db, workdir, &target);
             let parts = call.patches.len().max(1);
             audit(
                 "patch",
@@ -1027,6 +1029,7 @@ pub async fn execute_call(
                 false,
             );
             std::fs::remove_file(&target)?;
+            crate::rag::touch_file(&state.db, workdir, &target);
             audit(
                 "delete",
                 session_id,
@@ -1065,6 +1068,8 @@ pub async fn execute_call(
                 false,
             );
             apply_move(&from, &to)?;
+            crate::rag::touch_file(&state.db, workdir, &from);
+            crate::rag::touch_file(&state.db, workdir, &to);
             audit(
                 "move",
                 session_id,

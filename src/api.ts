@@ -119,6 +119,8 @@ export const api = {
   toolUndoLast: (sessionId: string) => invoke<string>("tool_undo_last", { sessionId }),
   ragReindex: (sessionId: string) => invoke<RagStats>("rag_reindex", { sessionId }),
   ragStatus: () => invoke<RagStats>("rag_status"),
+  ragGetEnabled: () => invoke<boolean>("rag_get_enabled"),
+  ragSetEnabled: (enabled: boolean) => invoke<boolean>("rag_set_enabled", { enabled }),
 
   pickFolder: () => invoke<string | null>("pick_folder"),
   sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>

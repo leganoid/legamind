@@ -157,6 +157,36 @@ pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
     })
 }
 
+/// Обновляет в индексе один файл (после записи/правки/удаления).
+pub fn reindex_file(db: &crate::db::Db, root: &Path, file: &Path) -> Result<()> {
+    let relative = file
+        .strip_prefix(root)
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|_| file.to_string_lossy().to_string());
+    db.rag_delete_path(&relative)?;
+    if !file.is_file() {
+        return Ok(());
+    }
+    let Ok(text) = std::fs::read_to_string(file) else {
+        return Ok(());
+    };
+    for (index, chunk) in chunk_text(&text, CHUNK_CHARS, CHUNK_OVERLAP)
+        .iter()
+        .enumerate()
+    {
+        db.rag_add_chunk(&relative, index as i64, chunk)?;
+    }
+    Ok(())
+}
+
+/// Обновляет файл в индексе, только если индекс уже существует.
+pub fn touch_file(db: &crate::db::Db, root: &Path, file: &Path) {
+    let has_index = db.rag_stats().map(|stats| stats.chunks > 0).unwrap_or(false);
+    if has_index {
+        let _ = reindex_file(db, root, file);
+    }
+}
+
 /// Блок релевантных фрагментов для system-промпта.
 pub fn context_block(db: &crate::db::Db, query: &str, limit: usize) -> Option<String> {
     let hits = db.rag_search(query, limit).ok()?;
@@ -205,6 +235,28 @@ pub async fn rag_status(state: State<'_, AppState>) -> Result<crate::db::RagStat
     state.db.rag_stats().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn rag_get_enabled(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state
+        .db
+        .setting_get("rag_enabled")
+        .map_err(|e| e.to_string())?
+        .map(|value| value != "0")
+        .unwrap_or(true))
+}
+
+#[tauri::command]
+pub async fn rag_set_enabled(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<bool, String> {
+    state
+        .db
+        .setting_set("rag_enabled", if enabled { "1" } else { "0" })
+        .map_err(|e| e.to_string())?;
+    Ok(enabled)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +268,33 @@ mod tests {
         assert!(chunks.len() > 1);
         assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 900));
         assert!(chunks.iter().all(|chunk| !chunk.trim().is_empty()));
+    }
+
+    #[test]
+    fn reindex_file_updates_index() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("rag-inc");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.md");
+        std::fs::write(&file, "версия один").unwrap();
+
+        let db = crate::db::Db::open_memory().unwrap();
+        index_workdir(&db, &dir).expect("index");
+        assert!(db.rag_search("уникальное", 5).unwrap().is_empty());
+
+        std::fs::write(&file, "версия два уникальное").unwrap();
+        reindex_file(&db, &dir, &file).expect("reindex");
+        let hits = db.rag_search("уникальное", 5).unwrap();
+        assert!(!hits.is_empty());
+        assert!(hits[0].content.contains("уникальное"));
+
+        std::fs::remove_file(&file).unwrap();
+        reindex_file(&db, &dir, &file).expect("remove");
+        assert!(db.rag_search("уникальное", 5).unwrap().is_empty());
+        assert_eq!(db.rag_stats().unwrap().files, 0);
     }
 
     #[test]
