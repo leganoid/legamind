@@ -23,6 +23,12 @@ pub const MAX_DIFF_CHARS: usize = 12000;
 pub const APPROVAL_TIMEOUT_SECS: u64 = 180;
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct PatchPart {
+    pub old: String,
+    pub new: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ToolCall {
     #[serde(alias = "name", alias = "function")]
     pub tool: String,
@@ -36,6 +42,12 @@ pub struct ToolCall {
     /// Новый фрагмент для apply_patch.
     #[serde(default, alias = "replace")]
     pub new: Option<String>,
+    /// Несколько фрагментов за один apply_patch.
+    #[serde(default)]
+    pub patches: Vec<PatchPart>,
+    /// Новый путь для rename_file.
+    #[serde(default, alias = "to")]
+    pub new_path: Option<String>,
     /// Команда для run_command.
     #[serde(default, alias = "cmd")]
     pub command: Option<String>,
@@ -320,8 +332,137 @@ pub fn prepare_patch(
     Ok((preview, path, updated))
 }
 
-pub async fn execute_command(workdir: &Path, command: &str) -> Result<ToolExecution> {
-    let command = command.trim();
+pub fn prepare_patch_many(
+    workdir: &Path,
+    trust: &str,
+    raw: &str,
+    parts: &[PatchPart],
+) -> Result<(WritePreview, PathBuf, String)> {
+    if trust == "read_only" {
+        bail!("Политика доверия «только чтение» запрещает запись");
+    }
+    if parts.is_empty() {
+        bail!("Пустой список patches");
+    }
+    let path = resolve_path(workdir, trust, raw)?;
+    if !path.is_file() {
+        bail!("Файл не найден: {}", path.display());
+    }
+    let original = read_text(&path)?;
+    let mut content = original.clone();
+    for (index, part) in parts.iter().enumerate() {
+        if part.old.is_empty() {
+            bail!("Часть {}: пустой old", index + 1);
+        }
+        let count = content.matches(&part.old).count();
+        if count == 0 {
+            bail!("Часть {}: фрагмент не найден", index + 1);
+        }
+        if count > 1 {
+            bail!("Часть {}: фрагмент встречается {count} раз", index + 1);
+        }
+        content = content.replacen(&part.old, &part.new, 1);
+    }
+    if content.len() > MAX_WRITE_BYTES {
+        bail!("Итоговый файл больше {} КБ", MAX_WRITE_BYTES / 1024);
+    }
+    let relative = path
+        .strip_prefix(workdir)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string_lossy().to_string());
+    let preview = WritePreview {
+        path: path.to_string_lossy().to_string(),
+        relative,
+        diff: render_diff(&original, &content),
+        is_new: false,
+        bytes: content.len(),
+    };
+    Ok((preview, path, content))
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DeletePreview {
+    pub path: String,
+    pub relative: String,
+    pub bytes: usize,
+    pub diff: String,
+}
+
+pub fn prepare_delete(
+    workdir: &Path,
+    trust: &str,
+    raw: &str,
+) -> Result<(DeletePreview, PathBuf)> {
+    if trust == "read_only" {
+        bail!("Политика доверия «только чтение» запрещает удаление");
+    }
+    let path = resolve_path(workdir, trust, raw)?;
+    if !path.is_file() {
+        bail!("Файл не найден: {}", path.display());
+    }
+    let text = read_text(&path).unwrap_or_default();
+    let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) as usize;
+    let relative = path
+        .strip_prefix(workdir)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string_lossy().to_string());
+    let preview = DeletePreview {
+        path: path.to_string_lossy().to_string(),
+        relative,
+        bytes,
+        diff: render_diff(&text, ""),
+    };
+    Ok((preview, path))
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MovePreview {
+    pub from: String,
+    pub to: String,
+    pub relative_from: String,
+    pub relative_to: String,
+}
+
+pub fn prepare_move(
+    workdir: &Path,
+    trust: &str,
+    from_raw: &str,
+    to_raw: &str,
+) -> Result<(MovePreview, PathBuf, PathBuf)> {
+    if trust == "read_only" {
+        bail!("Политика доверия «только чтение» запрещает перемещение");
+    }
+    let from = resolve_path(workdir, trust, from_raw)?;
+    let to = resolve_path(workdir, trust, to_raw)?;
+    if !from.is_file() {
+        bail!("Исходный файл не найден: {}", from.display());
+    }
+    if to.exists() {
+        bail!("Цель уже существует: {}", to.display());
+    }
+    let relative = |path: &Path| {
+        path.strip_prefix(workdir)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| path.to_string_lossy().to_string())
+    };
+    let preview = MovePreview {
+        from: from.to_string_lossy().to_string(),
+        to: to.to_string_lossy().to_string(),
+        relative_from: relative(&from),
+        relative_to: relative(&to),
+    };
+    Ok((preview, from, to))
+}
+
+pub fn apply_move(from: &Path, to: &Path) -> Result<()> {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(from, to)?;
+    Ok(())
+}
+
+pub async fn execute_command(workdir: &Path, command: &str) -> Result<ToolExecution> {    let command = command.trim();
     if command.is_empty() {
         bail!("Пустая команда");
     }
@@ -370,7 +511,7 @@ pub struct ApprovalPayload {
     pub approval_id: String,
     pub request_id: String,
     pub session_id: String,
-    /// "write" | "command"
+    /// "write" | "command" | "delete" | "move"
     pub kind: String,
     pub path: Option<String>,
     pub relative: Option<String>,
@@ -379,6 +520,7 @@ pub struct ApprovalPayload {
     pub bytes: usize,
     pub command: Option<String>,
     pub cwd: Option<String>,
+    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -436,6 +578,7 @@ pub async fn request_approval(
             bytes: preview.bytes,
             command: None,
             cwd: None,
+            target: None,
         },
     )
     .await
@@ -464,6 +607,63 @@ pub async fn request_command_approval(
             bytes: 0,
             command: Some(command.to_string()),
             cwd: Some(cwd.to_string_lossy().to_string()),
+            target: None,
+        },
+    )
+    .await
+}
+
+pub async fn request_delete_approval(
+    app: &AppHandle,
+    state: &AppState,
+    request_id: &str,
+    session_id: &str,
+    preview: &DeletePreview,
+) -> bool {
+    wait_approval(
+        app,
+        state,
+        ApprovalPayload {
+            approval_id: String::new(),
+            request_id: request_id.to_string(),
+            session_id: session_id.to_string(),
+            kind: "delete".to_string(),
+            path: Some(preview.path.clone()),
+            relative: Some(preview.relative.clone()),
+            diff: Some(preview.diff.clone()),
+            is_new: false,
+            bytes: preview.bytes,
+            command: None,
+            cwd: None,
+            target: None,
+        },
+    )
+    .await
+}
+
+pub async fn request_move_approval(
+    app: &AppHandle,
+    state: &AppState,
+    request_id: &str,
+    session_id: &str,
+    preview: &MovePreview,
+) -> bool {
+    wait_approval(
+        app,
+        state,
+        ApprovalPayload {
+            approval_id: String::new(),
+            request_id: request_id.to_string(),
+            session_id: session_id.to_string(),
+            kind: "move".to_string(),
+            path: Some(preview.from.clone()),
+            relative: Some(preview.relative_from.clone()),
+            diff: None,
+            is_new: false,
+            bytes: 0,
+            command: None,
+            cwd: None,
+            target: Some(preview.relative_to.clone()),
         },
     )
     .await
@@ -494,11 +694,15 @@ pub fn tools_prompt(workdir: &str, trust: &str) -> String {
          - {{\"tool\":\"read_file\",\"path\":\"src/main.rs\"}} — прочитать файл;\n\
          - {{\"tool\":\"write_file\",\"path\":\"notes.md\",\"content\":\"...\"}} — создать/перезаписать файл;\n\
          - {{\"tool\":\"apply_patch\",\"path\":\"src/main.rs\",\"old\":\"точный старый фрагмент\",\"new\":\"новый фрагмент\"}} — точечная правка;\n\
+         - {{\"tool\":\"apply_patch\",\"path\":\"a.rs\",\"patches\":[{{\"old\":\"...\",\"new\":\"...\"}},{{\"old\":\"...\",\"new\":\"...\"}}]}} — несколько правок за раз;\n\
+         - {{\"tool\":\"delete_file\",\"path\":\"old.rs\"}} — удалить файл;\n\
+         - {{\"tool\":\"rename_file\",\"path\":\"a.rs\",\"new_path\":\"b.rs\"}} — переместить/переименовать;\n\
          - {{\"tool\":\"run_command\",\"command\":\"cargo test\"}} — команда в рабочей папке.\n\
          Чтобы вызвать инструмент, ответь ТОЛЬКО JSON-объектом в блоке ```tool … ``` без другого текста.\n\
          После результата инструмента продолжи работу. Когда всё готово — дай обычный ответ без блоков tool.\n\
          Пути — относительно рабочей папки (абсолютные запрещены, кроме доверия «полный доступ»).\n\
          Предпочитай apply_patch перезаписи файла; run_command — для проверок и сборки.\n\
+         Удаление и перемещение необратимы — делай их только по прямой просьбе.\n\
          {write_rule}\n\
          Не выдумывай содержимое файлов: сначала read_file, потом правь."
     )
@@ -555,30 +759,90 @@ pub async fn execute_call(
             })
         }
         "apply_patch" | "patch" | "edit_file" => {
-            let old = call.old.clone().unwrap_or_default();
-            let new = call.new.clone().unwrap_or_default();
-            let (preview, target, updated) =
-                prepare_patch(workdir, trust, &path, &old, &new)?;
+            let (preview, target, updated) = if !call.patches.is_empty() {
+                prepare_patch_many(workdir, trust, &path, &call.patches)?
+            } else {
+                let old = call.old.clone().unwrap_or_default();
+                let new = call.new.clone().unwrap_or_default();
+                prepare_patch(workdir, trust, &path, &old, &new)?
+            };
             let approval_session = app.state::<AppState>();
             if !request_approval(app, &approval_session, request_id, session_id, &preview).await {
                 audit("patch_rejected", session_id, &preview.path);
                 bail!("Пользователь отклонил правку файла");
             }
             apply_write(&target, &updated)?;
+            let parts = call.patches.len().max(1);
             audit(
                 "patch",
                 session_id,
-                &format!("{} ({} B)", preview.path, preview.bytes),
+                &format!("{} ({} B, {parts} частей)", preview.path, preview.bytes),
             );
             Ok(ToolExecution {
                 summary: format!(
-                    "apply_patch {} → {} B (подтверждено)",
+                    "apply_patch {} → {} B ({parts} частей, подтверждено)",
                     preview.relative, preview.bytes
                 ),
                 output: format!(
                     "Файл изменён: {} ({} байт).\nDiff:\n{}",
                     preview.path, preview.bytes, preview.diff
                 ),
+            })
+        }
+        "delete_file" | "delete" | "remove_file" => {
+            let (preview, target) = prepare_delete(workdir, trust, &path)?;
+            let approval_session = app.state::<AppState>();
+            if !request_delete_approval(
+                app,
+                &approval_session,
+                request_id,
+                session_id,
+                &preview,
+            )
+            .await
+            {
+                audit("delete_rejected", session_id, &preview.path);
+                bail!("Пользователь отклонил удаление файла");
+            }
+            std::fs::remove_file(&target)?;
+            audit(
+                "delete",
+                session_id,
+                &format!("{} ({} B)", preview.path, preview.bytes),
+            );
+            Ok(ToolExecution {
+                summary: format!(
+                    "delete_file {} ({} B, подтверждено)",
+                    preview.relative, preview.bytes
+                ),
+                output: format!("Файл удалён: {}", preview.path),
+            })
+        }
+        "rename_file" | "move_file" | "move" | "rename" => {
+            let to_raw = call
+                .new_path
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("Не указан новый путь (new_path)"))?;
+            let (preview, from, to) = prepare_move(workdir, trust, &path, &to_raw)?;
+            let approval_session = app.state::<AppState>();
+            if !request_move_approval(app, &approval_session, request_id, session_id, &preview)
+                .await
+            {
+                audit("move_rejected", session_id, &preview.from);
+                bail!("Пользователь отклонил перемещение файла");
+            }
+            apply_move(&from, &to)?;
+            audit(
+                "move",
+                session_id,
+                &format!("{} → {}", preview.from, preview.to),
+            );
+            Ok(ToolExecution {
+                summary: format!(
+                    "rename_file {} → {} (подтверждено)",
+                    preview.relative_from, preview.relative_to
+                ),
+                output: format!("Файл перемещён: {} → {}", preview.from, preview.to),
             })
         }
         "run_command" | "run" | "shell" | "exec" => {
@@ -758,6 +1022,37 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let result = execute_command(&dir, "echo hello").await.expect("command");
         assert!(result.output.contains("hello"), "{}", result.output);
+    }
+
+    #[test]
+    fn patch_many_delete_and_move() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("tools-ops");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "alpha\nbeta\n").unwrap();
+
+        let parts = vec![
+            PatchPart { old: "alpha".into(), new: "ALPHA".into() },
+            PatchPart { old: "beta".into(), new: "BETA".into() },
+        ];
+        let (preview, _, updated) =
+            prepare_patch_many(&dir, "workspace", "a.txt", &parts).expect("many");
+        assert_eq!(updated, "ALPHA\nBETA\n");
+        assert!(preview.diff.contains("+ALPHA"));
+
+        let (deleted, _) = prepare_delete(&dir, "workspace", "a.txt").expect("delete");
+        assert!(deleted.bytes > 0);
+        assert!(prepare_delete(&dir, "read_only", "a.txt").is_err());
+
+        std::fs::write(dir.join("x.txt"), "x").unwrap();
+        let (moved, _, target) =
+            prepare_move(&dir, "workspace", "x.txt", "sub/y.txt").expect("move");
+        assert!(moved.relative_to.ends_with("y.txt"));
+        assert!(!target.exists());
+        assert!(prepare_move(&dir, "workspace", "x.txt", "a.txt").is_err());
     }
 
     #[test]

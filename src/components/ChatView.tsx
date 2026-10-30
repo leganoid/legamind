@@ -802,9 +802,13 @@ export default function ChatView(props: Props) {
               <strong>
                 {approval()!.kind === "command"
                   ? "Выполнить команду"
-                  : `${approval()!.is_new ? "Создать файл" : "Изменить файл"}: ${
-                      approval()!.relative ?? approval()!.path ?? ""
-                    }`}
+                  : approval()!.kind === "delete"
+                    ? `Удалить файл: ${approval()!.relative ?? approval()!.path ?? ""}`
+                    : approval()!.kind === "move"
+                      ? `Переместить: ${approval()!.relative ?? ""} → ${approval()!.target ?? ""}`
+                      : `${approval()!.is_new ? "Создать файл" : "Изменить файл"}: ${
+                          approval()!.relative ?? approval()!.path ?? ""
+                        }`}
               </strong>
               <Show when={approval()!.kind !== "command"}>
                 <span class="muted small">{approval()!.bytes} байт</span>
@@ -813,24 +817,33 @@ export default function ChatView(props: Props) {
             <Show
               when={approval()!.kind === "command"}
               fallback={
-                <>
-                  <div class="muted small mono">{approval()!.path}</div>
-                  <pre class="diff-view">
-                    <For each={(approval()!.diff ?? "").split("\n")}>
-                      {(line) => (
-                        <div
-                          classList={{
-                            "diff-line": true,
-                            add: line.startsWith("+"),
-                            del: line.startsWith("-"),
-                          }}
-                        >
-                          {line || " "}
-                        </div>
-                      )}
-                    </For>
-                  </pre>
-                </>
+                <Show
+                  when={approval()!.kind === "move"}
+                  fallback={
+                    <>
+                      <div class="muted small mono">{approval()!.path}</div>
+                      <pre class="diff-view">
+                        <For each={(approval()!.diff ?? "").split("\n")}>
+                          {(line) => (
+                            <div
+                              classList={{
+                                "diff-line": true,
+                                add: line.startsWith("+"),
+                                del: line.startsWith("-"),
+                              }}
+                            >
+                              {line || " "}
+                            </div>
+                          )}
+                        </For>
+                      </pre>
+                    </>
+                  }
+                >
+                  <div class="move-view">
+                    {approval()!.relative} → {approval()!.target}
+                  </div>
+                </Show>
               }
             >
               <pre class="command-view">{approval()!.command}</pre>
@@ -845,7 +858,13 @@ export default function ChatView(props: Props) {
                   if (current) await api.toolApprove(current.approval_id, true);
                 }}
               >
-                {approval()?.kind === "command" ? "Выполнить" : "Разрешить запись"}
+                {approval()?.kind === "command"
+                  ? "Выполнить"
+                  : approval()?.kind === "delete"
+                    ? "Удалить"
+                    : approval()?.kind === "move"
+                      ? "Переместить"
+                      : "Разрешить запись"}
               </button>
               <button
                 class="btn ghost"
