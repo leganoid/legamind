@@ -779,6 +779,7 @@ pub fn help_text() -> String {
         "/pwd — рабочая папка проекта",
         "/workdir <путь> — задать рабочую папку (создаст файлы проекта)",
         "/web <запрос> — поиск в интернете, /web on|off — вкл/выкл",
+        "/index — проиндексировать рабочую папку для RAG",
         "",
         "Без слэша: «запомни: …» тоже сохраняет факт.",
     ]
@@ -1035,6 +1036,19 @@ pub fn local_command(
         "export" => Ok(Some(export_session(db, data_dir, session_id)?)),
         "pwd" => Ok(Some(workdir_command(db, session_id, "pwd", "")?)),
         "workdir" => Ok(Some(workdir_command(db, session_id, "workdir", args)?)),
+        "index" | "reindex" => {
+            let workdir = db
+                .session_get(session_id)
+                .map_err(|e| e.to_string())?
+                .and_then(|session| session.workdir)
+                .ok_or_else(|| "Сначала задайте рабочую папку: /workdir <путь>".to_string())?;
+            let stats = crate::rag::index_workdir(db, std::path::Path::new(&workdir))
+                .map_err(|e| e.to_string())?;
+            Ok(Some(notice(format!(
+                "Индекс готов: {} фрагментов из {} файлов",
+                stats.chunks, stats.files
+            ))?))
+        }
         _ => Ok(None),
     }
 }

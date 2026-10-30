@@ -692,6 +692,8 @@ impl Db {
 
     pub fn session_delete(&self, id: &str) -> Result<()> {
         let conn = self.conn();
+        conn.execute("DELETE FROM tool_runs WHERE session_id = ?1", params![id])?;
+        conn.execute("DELETE FROM tool_backups WHERE session_id = ?1", params![id])?;
         conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
         Ok(())
     }
