@@ -863,6 +863,9 @@ export default function ChatView(props: Props) {
               <pre class="command-view">{approval()!.command}</pre>
               <div class="muted small mono">cwd: {approval()!.cwd}</div>
             </Show>
+            <Show when={approval()!.warning}>
+              <div class="banner error">{approval()!.warning}</div>
+            </Show>
             <div class="modal-actions">
               <button
                 class="btn primary"

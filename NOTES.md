@@ -427,3 +427,23 @@ move → вернуть на прежнее место. Кнопка **↩ От�
 
 Проверено вживую: созданный `undo-test.txt` после «Отменить» исчез, audit `undo write …`;
 unit-тест покрывает write/create/delete/move (61 тест).
+
+### M6, шестой срез: политика команд и очистка бэкапов
+
+`guard_command` проверяет команду до подтверждения. Заблокированы навсегда (даже при `full`):
+`format`, `diskpart`, `bcdedit`, `vssadmin`, `wbadmin`, `cipher /w`, `reg delete`,
+`reg add HKLM`, автозапуск через HKCU Run, `shutdown`, `restart-computer`, `sc delete`,
+`schtasks /delete`, `taskkill /f`, `net user/localgroup`, `takeown`, `icacls`,
+`rm -rf /`, `rm -rf ~`, `del/rd /s /q C:\`, `powershell -enc`, `curl | cmd`, `iwr | iex`.
+Отказ пишется в audit как `command_blocked` и возвращается модели как ошибка инструмента.
+
+Потенциально разрушительные (`del`, `rm`, `git reset --hard`, `git clean`, `git push --force`,
+`npm/cargo publish`, `pip/npm install`) разрешены, но в модалке подтверждения показывается
+красное предупреждение.
+
+Бэкапы чистятся автоматически: `prune_backups` оставляет 20 самых свежих файлов в
+`<workdir>/.legamind/backups`.
+
+Проверено: unit-тесты (guard блокирует `format`, предупреждает `del`, prune оставляет 2 из 5);
+в живом чате модель сама отказалась выполнять `format C: /q` (дополнительный слой защиты).
+Тесты: 63 unit.

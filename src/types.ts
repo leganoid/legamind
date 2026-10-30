@@ -319,6 +319,7 @@ export interface ToolApproval {
   command: string | null;
   cwd: string | null;
   target: string | null;
+  warning: string | null;
 }
 
 export interface ToolEventPayload {

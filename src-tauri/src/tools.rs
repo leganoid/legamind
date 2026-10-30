@@ -523,7 +523,114 @@ pub fn make_backup(
         .unwrap_or_else(|| "file".to_string());
     let dest = root.join(format!("{}-{name}", crate::db::new_id()));
     std::fs::copy(file, &dest)?;
+    prune_backups(&root, 20);
     Ok(Some(dest.to_string_lossy().to_string()))
+}
+
+/// Оставляет в папке бэкапов только `keep` самых свежих файлов.
+pub fn prune_backups(dir: &Path, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_file() {
+                return None;
+            }
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, path))
+        })
+        .collect();
+    if files.len() <= keep {
+        return;
+    }
+    files.sort_by(|left, right| right.0.cmp(&left.0));
+    for (_, path) in files.into_iter().skip(keep) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Результат проверки команды перед подтверждением.
+#[derive(Debug, Clone)]
+pub struct GuardResult {
+    pub allowed: bool,
+    pub warning: Option<String>,
+    pub reason: Option<String>,
+}
+
+const DENIED_PATTERNS: &[(&str, &str)] = &[
+    ("format ", "форматирование диска"),
+    ("diskpart", "управление разделами диска"),
+    ("bcdedit", "правка загрузчика"),
+    ("vssadmin", "удаление теневых копий"),
+    ("wbadmin", "удаление резервных копий Windows"),
+    ("cipher /w", "затирание свободного места"),
+    ("reg delete", "удаление веток реестра"),
+    ("reg add hklm", "правка системного реестра"),
+    ("reg add hkcu\\software\\microsoft\\windows\\currentversion\\run", "автозапуск через реестр"),
+    ("shutdown", "выключение компьютера"),
+    ("restart-computer", "перезагрузка компьютера"),
+    ("stop-computer", "выключение компьютера"),
+    ("sc delete", "удаление службы"),
+    ("schtasks /delete", "удаление задачи планировщика"),
+    ("taskkill /f", "принудительное завершение процессов"),
+    ("net user", "управление пользователями"),
+    ("net localgroup", "управление группами"),
+    ("takeown", "смена владельца"),
+    ("icacls", "смена прав доступа"),
+    ("rm -rf /", "удаление корня файловой системы"),
+    ("rm -rf ~", "удаление домашней папки"),
+    ("del /f /s /q c:\\", "удаление с корня диска"),
+    ("rd /s /q c:\\", "удаление каталогов с корня диска"),
+    ("rmdir /s /q c:\\", "удаление каталогов с корня диска"),
+    ("powershell -enc", "скрытый закодированный скрипт"),
+    ("powershell -encodedcommand", "скрытый закодированный скрипт"),
+    ("curl | cmd", "запуск скачанного кода"),
+    ("iwr | iex", "запуск скачанного кода"),
+];
+
+const WARN_PATTERNS: &[(&str, &str)] = &[
+    ("del ", "удаление файлов без корзины"),
+    ("rm ", "удаление файлов"),
+    ("rd ", "удаление каталогов"),
+    ("rmdir ", "удаление каталогов"),
+    ("git reset --hard", "потеря незакоммиченных изменений"),
+    ("git clean", "удаление неотслеживаемых файлов"),
+    ("git push --force", "перезапись удалённой истории"),
+    ("npm publish", "публикация пакета"),
+    ("cargo publish", "публикация пакета"),
+    ("pip install", "изменение окружения Python"),
+    ("npm install", "изменение зависимостей"),
+];
+
+/// Проверяет команду: опасные — блокируются, потенциально разрушительные — с предупреждением.
+pub fn guard_command(command: &str, _trust: &str) -> GuardResult {
+    let normalized = command.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ");
+    for (pattern, reason) in DENIED_PATTERNS {
+        if normalized.contains(pattern) {
+            return GuardResult {
+                allowed: false,
+                warning: None,
+                reason: Some(format!("Запрещённая команда ({reason})")),
+            };
+        }
+    }
+    let warnings: Vec<&str> = WARN_PATTERNS
+        .iter()
+        .filter(|(pattern, _)| normalized.contains(pattern))
+        .map(|(_, reason)| *reason)
+        .collect();
+    GuardResult {
+        allowed: true,
+        warning: if warnings.is_empty() {
+            None
+        } else {
+            Some(format!("Внимание: {}", warnings.join("; ")))
+        },
+        reason: None,
+    }
 }
 
 /// Отменяет последнее изменение файла в сессии.
@@ -595,6 +702,8 @@ pub struct ApprovalPayload {
     pub command: Option<String>,
     pub cwd: Option<String>,
     pub target: Option<String>,
+    /// Предупреждение о потенциально опасной команде.
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -653,6 +762,7 @@ pub async fn request_approval(
             command: None,
             cwd: None,
             target: None,
+            warning: None,
         },
     )
     .await
@@ -665,6 +775,7 @@ pub async fn request_command_approval(
     session_id: &str,
     command: &str,
     cwd: &Path,
+    warning: Option<&str>,
 ) -> bool {
     wait_approval(
         app,
@@ -682,6 +793,7 @@ pub async fn request_command_approval(
             command: Some(command.to_string()),
             cwd: Some(cwd.to_string_lossy().to_string()),
             target: None,
+            warning: warning.map(|value| value.to_string()),
         },
     )
     .await
@@ -710,6 +822,7 @@ pub async fn request_delete_approval(
             command: None,
             cwd: None,
             target: None,
+            warning: None,
         },
     )
     .await
@@ -738,6 +851,7 @@ pub async fn request_move_approval(
             command: None,
             cwd: None,
             target: Some(preview.relative_to.clone()),
+            warning: None,
         },
     )
     .await
@@ -972,6 +1086,15 @@ pub async fn execute_call(
                 .command
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("Не указана команда"))?;
+            let guard = guard_command(&command, trust);
+            if !guard.allowed {
+                audit(
+                    "command_blocked",
+                    session_id,
+                    &format!("{command} ({})", guard.reason.clone().unwrap_or_default()),
+                );
+                bail!("{}: {command}", guard.reason.unwrap_or_else(|| "Команда запрещена".into()));
+            }
             let approval_session = app.state::<AppState>();
             if !request_command_approval(
                 app,
@@ -980,6 +1103,7 @@ pub async fn execute_call(
                 session_id,
                 &command,
                 workdir,
+                guard.warning.as_deref(),
             )
             .await
             {
@@ -1258,6 +1382,41 @@ mod tests {
         assert!(file.exists());
         assert!(!target.exists());
         assert!(undo_last(&db, &session.id).is_err());
+    }
+
+    #[test]
+    fn command_guard_blocks_and_warns() {
+        let blocked = guard_command("format C: /q", "workspace");
+        assert!(!blocked.allowed);
+        assert!(blocked.reason.unwrap().contains("формат"));
+
+        let blocked = guard_command("rm -rf /", "full");
+        assert!(!blocked.allowed);
+
+        let ok = guard_command("cargo test", "workspace");
+        assert!(ok.allowed);
+        assert!(ok.warning.is_none());
+
+        let warn = guard_command("del notes.txt", "workspace");
+        assert!(warn.allowed);
+        assert!(warn.warning.is_some());
+    }
+
+    #[test]
+    fn prune_keeps_newest_backups() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("tools-prune");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for index in 0..5 {
+            std::fs::write(dir.join(format!("b{index}.bak")), "x").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        prune_backups(&dir, 2);
+        let count = std::fs::read_dir(&dir).unwrap().count();
+        assert_eq!(count, 2);
     }
 
     #[test]
