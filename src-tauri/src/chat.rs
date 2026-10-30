@@ -541,6 +541,94 @@ async fn run_chat(
             };
             let _ = app.emit("chat:status", payload);
         };
+
+        // M6: если задана рабочая папка — модель может читать/писать файлы.
+        if let Some(session_ref) = session.as_ref() {
+            if let Some(workdir) = session_ref.workdir.clone() {
+                let trust = session_ref.trust.clone();
+                let workdir_path = std::path::PathBuf::from(&workdir);
+                let mut conversation = messages.clone();
+                if let Some(system) = conversation.first_mut() {
+                    system.content.push_str("\n\n");
+                    system.content.push_str(&crate::tools::tools_prompt(&workdir, &trust));
+                }
+                params.max_tokens = params.max_tokens.max(1536);
+
+                for _ in 0..4 {
+                    let outcome = router
+                        .stream(
+                            &model_id,
+                            &conversation,
+                            &params,
+                            &cancel,
+                            &mut |_| {},
+                            &mut on_status,
+                        )
+                        .await?;
+                    if let Some(call) = crate::tools::parse_tool_call(&outcome.text) {
+                        let execution = crate::tools::execute_call(
+                            &app,
+                            &request_id,
+                            &session_id,
+                            &workdir_path,
+                            &trust,
+                            &call,
+                        )
+                        .await
+                        .unwrap_or_else(|err| {
+                            crate::tools::audit("tool_error", &session_id, &err.to_string());
+                            crate::tools::ToolExecution {
+                                summary: format!("ошибка {err}"),
+                                output: format!("Ошибка инструмента: {err}"),
+                            }
+                        });
+                        conversation.push(ChatMessage::new(
+                            "user",
+                            format!(
+                                "[Результат инструмента {}]\n{}\n(продолжай; если готов — ответь обычным текстом без блока tool)",
+                                call.tool, execution.output
+                            ),
+                        ));
+                        continue;
+                    }
+                    let _ = app.emit(
+                        "chat:delta",
+                        DeltaPayload {
+                            request_id: request_id.clone(),
+                            session_id: session_id.clone(),
+                            delta: outcome.text.clone(),
+                        },
+                    );
+                    return Ok((outcome, conversation, usage, sources));
+                }
+
+                // Лимит раундов: просим финальный ответ без инструментов.
+                conversation.push(ChatMessage::new(
+                    "user",
+                    "Лимит инструментов исчерпан. Дай финальный ответ без вызова инструментов.",
+                ));
+                let outcome = router
+                    .stream(
+                        &model_id,
+                        &conversation,
+                        &params,
+                        &cancel,
+                        &mut |_| {},
+                        &mut on_status,
+                    )
+                    .await?;
+                let _ = app.emit(
+                    "chat:delta",
+                    DeltaPayload {
+                        request_id: request_id.clone(),
+                        session_id: session_id.clone(),
+                        delta: outcome.text.clone(),
+                    },
+                );
+                return Ok((outcome, conversation, usage, sources));
+            }
+        }
+
         let outcome = router
             .stream(&model_id, &messages, &params, &cancel, &mut on_delta, &mut on_status)
             .await?;

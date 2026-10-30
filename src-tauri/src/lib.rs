@@ -11,6 +11,7 @@ pub mod providers;
 pub mod secrets;
 pub mod sidecar;
 pub mod skills;
+pub mod tools;
 pub mod web;
 pub mod workspace;
 
@@ -33,6 +34,8 @@ pub struct AppState {
     pub sidecar: tokio::sync::Mutex<Option<Arc<sidecar::Sidecar>>>,
     pub cancel: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub engine_error: Mutex<Option<String>>,
+    /// Ожидающие подтверждения записи файлов (approval_id → канал ответа).
+    pub approvals: Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
 }
 
 impl AppState {
@@ -272,6 +275,7 @@ pub fn run() {
                 sidecar: tokio::sync::Mutex::new(None),
                 cancel: Mutex::new(HashMap::new()),
                 engine_error: Mutex::new(None),
+                approvals: Mutex::new(HashMap::new()),
             });
 
             // Сайдкар стартует вместе с приложением, но не блокирует окно.
@@ -304,6 +308,7 @@ pub fn run() {
             workspace::session_set_workdir,
             workspace::session_set_policy,
             workspace::open_path,
+            tools::tool_approve,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

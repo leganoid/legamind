@@ -24,6 +24,7 @@ fn make_state(name: &str) -> AppState {
         sidecar: tokio::sync::Mutex::new(Some(Arc::new(Sidecar::for_test(1)))),
         cancel: Mutex::new(HashMap::new()),
         engine_error: Mutex::new(None),
+        approvals: Mutex::new(HashMap::new()),
     }
 }
 

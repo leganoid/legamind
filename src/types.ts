@@ -306,6 +306,26 @@ export interface SourceRow {
   created_at: string;
 }
 
+export interface ToolApproval {
+  approval_id: string;
+  request_id: string;
+  session_id: string;
+  path: string;
+  relative: string;
+  diff: string;
+  is_new: boolean;
+  bytes: number;
+}
+
+export interface ToolEventPayload {
+  request_id: string;
+  session_id: string;
+  tool: string;
+  path: string | null;
+  summary: string | null;
+  ok: boolean;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

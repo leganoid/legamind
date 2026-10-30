@@ -11,6 +11,8 @@ import type {
   ModelInfo,
   Session,
   SourceRow,
+  ToolApproval,
+  ToolEventPayload,
 } from "../types";
 import Sidebar from "./Sidebar";
 import ChatMessage from "./Message";
@@ -41,6 +43,7 @@ export default function ChatView(props: Props) {
   const [commandBusy, setCommandBusy] = createSignal(false);
   const [webEnabled, setWebEnabled] = createSignal(true);
   const [sourcesByMessage, setSourcesByMessage] = createSignal<Record<string, SourceRow[]>>({});
+  const [approval, setApproval] = createSignal<ToolApproval | null>(null);
   const [context, setContext] = createSignal<ContextUsage | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -473,6 +476,29 @@ export default function ChatView(props: Props) {
       }),
     );
 
+    // M6: инструменты — подтверждение записи и статусы.
+    unlisteners.push(
+      await listen<ToolApproval>("tool:approval", (event) => {
+        if (event.payload.session_id !== activeId()) return;
+        setApproval(event.payload);
+        setStatusText("Жду подтверждения записи файла…");
+      }),
+    );
+    unlisteners.push(
+      await listen<ToolEventPayload>("tool:call", (event) => {
+        if (event.payload.session_id !== activeId()) return;
+        const suffix = event.payload.path ? ` · ${event.payload.path}` : "";
+        setStatusText(`Инструмент: ${event.payload.tool}${suffix}`);
+      }),
+    );
+    unlisteners.push(
+      await listen<ToolEventPayload>("tool:done", (event) => {
+        if (event.payload.session_id !== activeId()) return;
+        setStatusText(null);
+        if (event.payload.summary) setNotice(event.payload.summary);
+      }),
+    );
+
     // Ctrl+N из App: создать новую сессию.
     const newSession = () => createSession();
     window.addEventListener("legamind:new-session", newSession);
@@ -753,6 +779,57 @@ export default function ChatView(props: Props) {
           </div>
         </Show>
       </section>
+
+      <Show when={approval()}>
+        <div class="modal-overlay">
+          <div class="modal">
+            <header class="modal-head">
+              <strong>
+                {approval()!.is_new ? "Создать файл" : "Изменить файл"}: {approval()!.relative}
+              </strong>
+              <span class="muted small">{approval()!.bytes} байт</span>
+            </header>
+            <div class="muted small mono">{approval()!.path}</div>
+            <pre class="diff-view">
+              <For each={approval()!.diff.split("\n")}>
+                {(line) => (
+                  <div
+                    classList={{
+                      "diff-line": true,
+                      add: line.startsWith("+"),
+                      del: line.startsWith("-"),
+                    }}
+                  >
+                    {line || " "}
+                  </div>
+                )}
+              </For>
+            </pre>
+            <div class="modal-actions">
+              <button
+                class="btn primary"
+                onClick={async () => {
+                  const current = approval();
+                  setApproval(null);
+                  if (current) await api.toolApprove(current.approval_id, true);
+                }}
+              >
+                Разрешить запись
+              </button>
+              <button
+                class="btn ghost"
+                onClick={async () => {
+                  const current = approval();
+                  setApproval(null);
+                  if (current) await api.toolApprove(current.approval_id, false);
+                }}
+              >
+                Отклонить
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 }

@@ -110,6 +110,8 @@ export const api = {
   webTest: () => invoke<WebTestResult>("web_test"),
   webFetchPage: (url: string) => invoke<string>("web_fetch_page", { url }),
   sourcesList: (sessionId: string) => invoke<SourceRow[]>("sources_list", { sessionId }),
+  toolApprove: (approvalId: string, approve: boolean) =>
+    invoke<void>("tool_approve", { approvalId, approve }),
 
   pickFolder: () => invoke<string | null>("pick_folder"),
   sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>
