@@ -182,7 +182,7 @@ pub fn list_dir(workdir: &Path, trust: &str, raw: &str) -> Result<ToolExecution>
     let mut files = Vec::new();
     for entry in std::fs::read_dir(&path)?.flatten().take(400) {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name == ".git" || name == "node_modules" || name == "target" {
+        if name == ".git" || name == "node_modules" || name == "target" || name == ".legamind" {
             continue;
         }
         let meta = entry.metadata().ok();
@@ -506,6 +506,80 @@ pub fn audit(action: &str, session_id: &str, detail: &str) {
     );
 }
 
+/// Копирует файл в `.legamind/backups` перед изменением. Для новых файлов копии нет.
+pub fn make_backup(
+    workdir: &Path,
+    file: &Path,
+    created: bool,
+) -> Result<Option<String>> {
+    if created || !file.is_file() {
+        return Ok(None);
+    }
+    let root = workdir.join(".legamind").join("backups");
+    std::fs::create_dir_all(&root)?;
+    let name = file
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".to_string());
+    let dest = root.join(format!("{}-{name}", crate::db::new_id()));
+    std::fs::copy(file, &dest)?;
+    Ok(Some(dest.to_string_lossy().to_string()))
+}
+
+/// Отменяет последнее изменение файла в сессии.
+pub fn undo_last(db: &crate::db::Db, session_id: &str) -> Result<String> {
+    let row = db
+        .tool_backup_last(session_id)?
+        .ok_or_else(|| anyhow::anyhow!("Нет изменений для отмены"))?;
+    let path = std::path::PathBuf::from(&row.path);
+    let backup = row.backup_path.as_deref().map(std::path::PathBuf::from);
+    match row.action.as_str() {
+        "write" | "patch" => {
+            if row.created {
+                if path.exists() {
+                    std::fs::remove_file(&path)?;
+                }
+            } else {
+                let backup = backup.ok_or_else(|| anyhow::anyhow!("Нет резервной копии"))?;
+                std::fs::copy(&backup, &path)?;
+            }
+        }
+        "delete" => {
+            let backup = backup.ok_or_else(|| anyhow::anyhow!("Нет резервной копии"))?;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&backup, &path)?;
+        }
+        "move" => {
+            let target = row
+                .target
+                .as_deref()
+                .map(std::path::PathBuf::from)
+                .ok_or_else(|| anyhow::anyhow!("Нет целевого пути"))?;
+            if !target.exists() {
+                bail!("Файл уже перемещён или удалён — откат невозможен");
+            }
+            if path.exists() {
+                bail!("Исходный путь занят — откат невозможен");
+            }
+            std::fs::rename(&target, &path)?;
+        }
+        other => bail!("Неизвестное действие для отмены: {other}"),
+    }
+    db.tool_backup_mark_undone(&row.id)?;
+    audit("undo", session_id, &format!("{} {}", row.action, row.path));
+    Ok(format!("Отменено: {} {}", row.action, row.path))
+}
+
+#[tauri::command]
+pub async fn tool_undo_last(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> Result<String, String> {
+    undo_last(&state.db, &session_id).map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ApprovalPayload {
     pub approval_id: String,
@@ -745,6 +819,18 @@ pub async fn execute_call(
                 audit("write_rejected", session_id, &preview.path);
                 bail!("Пользователь отклонил запись файла");
             }
+            let created = !target.exists();
+            let backup = make_backup(workdir, &target, created)?;
+            let _ = state.db.tool_backup_add(
+                session_id,
+                request_id,
+                "write_file",
+                "write",
+                &preview.path,
+                None,
+                backup.as_deref(),
+                created,
+            );
             apply_write(&target, &content)?;
             audit("write", session_id, &format!("{} ({} B)", preview.path, preview.bytes));
             Ok(ToolExecution {
@@ -771,6 +857,17 @@ pub async fn execute_call(
                 audit("patch_rejected", session_id, &preview.path);
                 bail!("Пользователь отклонил правку файла");
             }
+            let backup = make_backup(workdir, &target, false)?;
+            let _ = state.db.tool_backup_add(
+                session_id,
+                request_id,
+                "apply_patch",
+                "patch",
+                &preview.path,
+                None,
+                backup.as_deref(),
+                false,
+            );
             apply_write(&target, &updated)?;
             let parts = call.patches.len().max(1);
             audit(
@@ -804,6 +901,17 @@ pub async fn execute_call(
                 audit("delete_rejected", session_id, &preview.path);
                 bail!("Пользователь отклонил удаление файла");
             }
+            let backup = make_backup(workdir, &target, false)?;
+            let _ = state.db.tool_backup_add(
+                session_id,
+                request_id,
+                "delete_file",
+                "delete",
+                &preview.path,
+                None,
+                backup.as_deref(),
+                false,
+            );
             std::fs::remove_file(&target)?;
             audit(
                 "delete",
@@ -831,6 +939,17 @@ pub async fn execute_call(
                 audit("move_rejected", session_id, &preview.from);
                 bail!("Пользователь отклонил перемещение файла");
             }
+            let backup = make_backup(workdir, &from, false)?;
+            let _ = state.db.tool_backup_add(
+                session_id,
+                request_id,
+                "rename_file",
+                "move",
+                &preview.from,
+                Some(&preview.to),
+                backup.as_deref(),
+                false,
+            );
             apply_move(&from, &to)?;
             audit(
                 "move",
@@ -1053,6 +1172,92 @@ mod tests {
         assert!(moved.relative_to.ends_with("y.txt"));
         assert!(!target.exists());
         assert!(prepare_move(&dir, "workspace", "x.txt", "a.txt").is_err());
+    }
+
+    #[test]
+    fn changes_are_undoable() {
+        let db = crate::db::Db::open_memory().unwrap();
+        let session = db.session_create("t", "local/qwen-1.5b").unwrap();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("tools-undo");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.txt");
+        std::fs::write(&file, "one").unwrap();
+
+        // Изменение существующего файла.
+        let backup = make_backup(&dir, &file, false).unwrap();
+        db.tool_backup_add(
+            &session.id,
+            "r1",
+            "write_file",
+            "write",
+            &file.to_string_lossy(),
+            None,
+            backup.as_deref(),
+            false,
+        )
+        .unwrap();
+        std::fs::write(&file, "two").unwrap();
+        undo_last(&db, &session.id).expect("undo write");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "one");
+
+        // Новый файл — откат удаляет его.
+        let created = dir.join("b.txt");
+        let backup = make_backup(&dir, &created, true).unwrap();
+        db.tool_backup_add(
+            &session.id,
+            "r2",
+            "write_file",
+            "write",
+            &created.to_string_lossy(),
+            None,
+            backup.as_deref(),
+            true,
+        )
+        .unwrap();
+        std::fs::write(&created, "x").unwrap();
+        undo_last(&db, &session.id).expect("undo create");
+        assert!(!created.exists());
+
+        // Удаление — откат восстанавливает.
+        let backup = make_backup(&dir, &file, false).unwrap();
+        db.tool_backup_add(
+            &session.id,
+            "r3",
+            "delete_file",
+            "delete",
+            &file.to_string_lossy(),
+            None,
+            backup.as_deref(),
+            false,
+        )
+        .unwrap();
+        std::fs::remove_file(&file).unwrap();
+        undo_last(&db, &session.id).expect("undo delete");
+        assert!(file.exists());
+
+        // Перемещение — откат возвращает на место.
+        let target = dir.join("c.txt");
+        let backup = make_backup(&dir, &file, false).unwrap();
+        db.tool_backup_add(
+            &session.id,
+            "r4",
+            "rename_file",
+            "move",
+            &file.to_string_lossy(),
+            Some(&target.to_string_lossy()),
+            backup.as_deref(),
+            false,
+        )
+        .unwrap();
+        std::fs::rename(&file, &target).unwrap();
+        undo_last(&db, &session.id).expect("undo move");
+        assert!(file.exists());
+        assert!(!target.exists());
+        assert!(undo_last(&db, &session.id).is_err());
     }
 
     #[test]

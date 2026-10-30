@@ -154,6 +154,22 @@ pub struct ToolRunRow {
     pub created_at: String,
 }
 
+/// Резервная копия файла перед изменением (для отмены).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolBackupRow {
+    pub id: String,
+    pub session_id: String,
+    pub request_id: Option<String>,
+    pub tool: String,
+    pub action: String,
+    pub path: String,
+    pub target: Option<String>,
+    pub backup_path: Option<String>,
+    pub created: bool,
+    pub undone: bool,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebateRow {
     pub id: String,
@@ -482,6 +498,29 @@ impl Db {
                 "#,
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (8)", [])?;
+        }
+
+        if current < 9 {
+            // Резервные копии перед изменениями (для «Отменить последнее»).
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS tool_backups (
+                  id TEXT PRIMARY KEY,
+                  session_id TEXT NOT NULL,
+                  request_id TEXT,
+                  tool TEXT NOT NULL,
+                  action TEXT NOT NULL,
+                  path TEXT NOT NULL,
+                  target TEXT,
+                  backup_path TEXT,
+                  created INTEGER NOT NULL DEFAULT 0,
+                  undone INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_tool_backups_session ON tool_backups(session_id);
+                "#,
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (9)", [])?;
         }
         Ok(())
     }
@@ -1009,6 +1048,90 @@ impl Db {
     pub fn tool_runs_delete(&self, session_id: &str) -> Result<()> {
         let conn = self.conn();
         conn.execute("DELETE FROM tool_runs WHERE session_id = ?1", params![session_id])?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------ резервные копии
+    #[allow(clippy::too_many_arguments)]
+    pub fn tool_backup_add(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        tool: &str,
+        action: &str,
+        path: &str,
+        target: Option<&str>,
+        backup_path: Option<&str>,
+        created: bool,
+    ) -> Result<ToolBackupRow> {
+        let row = ToolBackupRow {
+            id: new_id(),
+            session_id: session_id.to_string(),
+            request_id: Some(request_id.to_string()),
+            tool: tool.to_string(),
+            action: action.to_string(),
+            path: path.to_string(),
+            target: target.map(|value| value.to_string()),
+            backup_path: backup_path.map(|value| value.to_string()),
+            created,
+            undone: false,
+            created_at: now(),
+        };
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO tool_backups
+             (id, session_id, request_id, tool, action, path, target, backup_path, created, undone, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10)",
+            params![
+                row.id,
+                row.session_id,
+                row.request_id,
+                row.tool,
+                row.action,
+                row.path,
+                row.target,
+                row.backup_path,
+                row.created as i64,
+                row.created_at
+            ],
+        )?;
+        Ok(row)
+    }
+
+    pub fn tool_backup_last(&self, session_id: &str) -> Result<Option<ToolBackupRow>> {
+        let conn = self.conn();
+        Ok(conn
+            .query_row(
+                "SELECT id, session_id, request_id, tool, action, path, target, backup_path,
+                        created, undone, created_at
+                 FROM tool_backups WHERE session_id = ?1 AND undone = 0
+                 ORDER BY rowid DESC LIMIT 1",
+                params![session_id],
+                |row| {
+                    Ok(ToolBackupRow {
+                        id: row.get(0)?,
+                        session_id: row.get(1)?,
+                        request_id: row.get(2)?,
+                        tool: row.get(3)?,
+                        action: row.get(4)?,
+                        path: row.get(5)?,
+                        target: row.get(6)?,
+                        backup_path: row.get(7)?,
+                        created: row.get::<_, i64>(8)? != 0,
+                        undone: row.get::<_, i64>(9)? != 0,
+                        created_at: row.get(10)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    pub fn tool_backup_mark_undone(&self, id: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE tool_backups SET undone = 1 WHERE id = ?1",
+            params![id],
+        )?;
         Ok(())
     }
 

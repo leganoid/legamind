@@ -310,6 +310,7 @@ pub fn run() {
             workspace::open_path,
             tools::tool_approve,
             tools::tool_runs_list,
+            tools::tool_undo_last,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

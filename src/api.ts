@@ -115,6 +115,7 @@ export const api = {
     invoke<void>("tool_approve", { approvalId, approve }),
   toolRunsList: (sessionId: string, limit = 20) =>
     invoke<ToolRunRow[]>("tool_runs_list", { sessionId, limit }),
+  toolUndoLast: (sessionId: string) => invoke<string>("tool_undo_last", { sessionId }),
 
   pickFolder: () => invoke<string | null>("pick_folder"),
   sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>

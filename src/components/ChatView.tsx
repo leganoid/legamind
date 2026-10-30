@@ -216,6 +216,17 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const undoLastChange = async () => {
+    const id = activeId();
+    if (!id) return;
+    if (!window.confirm("Отменить последнее изменение файла в этой сессии?")) return;
+    try {
+      setNotice(await api.toolUndoLast(id));
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const toggleWeb = async () => {
     try {
       const config = await api.webConfigSet({ enabled: !webEnabled() });
@@ -668,6 +679,9 @@ export default function ChatView(props: Props) {
           </Show>
           <button class="btn small" title="Последние вызовы инструментов" onClick={openToolHistory}>
             🧰 История
+          </button>
+          <button class="btn small" title="Отменить последнее изменение файла" onClick={undoLastChange}>
+            ↩ Отменить
           </button>
         </div>
 
