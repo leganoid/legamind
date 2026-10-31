@@ -1,6 +1,7 @@
 import { For, Show, createSignal, onMount } from "solid-js";
 import { api } from "../api";
 import type { AppInfo, WebConfigView, WebTestResult } from "../types";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function SettingsView() {
   const [info, setInfo] = createSignal<AppInfo | null>(null);
@@ -16,6 +17,11 @@ export default function SettingsView() {
   const [googleCx, setGoogleCx] = createSignal("");
   const [webTest, setWebTest] = createSignal<WebTestResult | null>(null);
   const [testing, setTesting] = createSignal(false);
+  const [resetOpen, setResetOpen] = createSignal(false);
+  const [health, setHealth] = createSignal<
+    { engine: string; search: string; ok: boolean } | null
+  >(null);
+  const [checking, setChecking] = createSignal(false);
   const savedTab = localStorage.getItem("legamind.settings.tab");
   const [tab, setTab] = createSignal<"internet" | "app" | "privacy">(
     savedTab === "app" || savedTab === "privacy" ? savedTab : "internet",
@@ -71,8 +77,61 @@ export default function SettingsView() {
     }
   };
 
-  const restart = async () => {
+  const checkAll = async () => {
+    setChecking(true);
     setError(null);
+    setHealth(null);
+    try {
+      const appInfo = await api.appInfo();
+      let search = "не проверялся";
+      let ok = true;
+      try {
+        const test = await api.webTest();
+        if (test.error) {
+          search = `ошибка: ${test.error}`;
+          ok = false;
+        } else {
+          search = `${test.provider}: ${test.results.length} результатов`;
+        }
+      } catch (err) {
+        search = String(err);
+        ok = false;
+      }
+      setHealth({
+        engine: appInfo.engine_status ?? "неизвестно",
+        search,
+        ok,
+      });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const resetWeb = async () => {
+    setResetOpen(false);
+    setProvider("auto");
+    setSearxngUrl("");
+    setGoogleCx("");
+    setTavilyKey("");
+    setBraveKey("");
+    setGoogleKey("");
+    try {
+      const config = await api.webConfigSet({
+        enabled: true,
+        provider: "auto",
+        searxng_url: "",
+        google_cx: "",
+      });
+      setWeb(config);
+      setNotice("Интернет-настройки сброшены: провайдер «Авто», поля очищены");
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const restart = async () => {    setError(null);
     setNotice("Перезапуск движка…");
     try {
       const port = await api.engineRestart();
@@ -224,6 +283,9 @@ export default function SettingsView() {
             <button class="btn" onClick={testSearch} disabled={testing()}>
               {testing() ? "Проверяю…" : "Проверить поиск"}
             </button>
+            <button class="btn ghost" onClick={() => setResetOpen(true)}>
+              Сбросить интернет-настройки
+            </button>
           </div>
 
           <Show when={webTest()}>
@@ -278,7 +340,22 @@ export default function SettingsView() {
           <button class="btn ghost" onClick={load}>
             Обновить
           </button>
+          <button class="btn" onClick={checkAll} disabled={checking()}>
+            {checking() ? "Проверяю…" : "Проверить всё"}
+          </button>
         </div>
+
+        <Show when={health()}>
+          <div classList={{ health: true, ok: health()!.ok, warn: !health()!.ok }}>
+            <strong>{health()!.ok ? "✓ Всё отвечает" : "⚠ Есть замечания"}</strong>
+            <dl class="kv">
+              <dt>Движок</dt>
+              <dd>{health()!.engine}</dd>
+              <dt>Поиск</dt>
+              <dd>{health()!.search}</dd>
+            </dl>
+          </div>
+        </Show>
       </section>
       </Show>
 
@@ -292,6 +369,15 @@ export default function SettingsView() {
         </p>
       </section>
       </Show>
+
+      <ConfirmDialog
+        open={resetOpen()}
+        title="Сбросить интернет-настройки?"
+        message="Провайдер вернётся к «Авто», адреса SearxNG и Google CX очистятся. Сохранённые ключи останутся в Credential Manager."
+        confirmLabel="Сбросить"
+        onConfirm={() => void resetWeb()}
+        onCancel={() => setResetOpen(false)}
+      />
     </div>
   );
 }

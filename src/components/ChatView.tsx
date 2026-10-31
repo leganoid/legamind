@@ -577,6 +577,20 @@ export default function ChatView(props: Props) {
     const newSession = () => createSession();
     window.addEventListener("legamind:new-session", newSession);
     onCleanup(() => window.removeEventListener("legamind:new-session", newSession));
+
+    // Действия проекта из command palette.
+    const paletteIndex = () => void indexProject();
+    const paletteHistory = () => void openToolHistory();
+    const paletteRag = () => void toggleRag();
+    window.addEventListener("legamind:project-index", paletteIndex);
+    window.addEventListener("legamind:tool-history", paletteHistory);
+    window.addEventListener("legamind:rag-toggle", paletteRag);
+    onCleanup(() => {
+      window.removeEventListener("legamind:project-index", paletteIndex);
+      window.removeEventListener("legamind:tool-history", paletteHistory);
+      window.removeEventListener("legamind:rag-toggle", paletteRag);
+    });
+
     onCleanup(() => unlisteners.forEach((fn) => fn()));
 
     api

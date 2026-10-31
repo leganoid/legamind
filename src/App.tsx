@@ -116,6 +116,40 @@ export default function App() {
         closePalette();
       },
     },
+    ...(view() === "chat"
+      ? [
+          {
+            id: "project-index",
+            label: "Проиндексировать проект",
+            hint: "RAG по рабочей папке",
+            icon: "📚",
+            run: () => {
+              window.dispatchEvent(new Event("legamind:project-index"));
+              closePalette();
+            },
+          },
+          {
+            id: "tool-history",
+            label: "История инструментов",
+            hint: "Проект",
+            icon: "🧰",
+            run: () => {
+              window.dispatchEvent(new Event("legamind:tool-history"));
+              closePalette();
+            },
+          },
+          {
+            id: "rag-toggle",
+            label: "Переключить RAG",
+            hint: "Поиск по проекту",
+            icon: "🔎",
+            run: () => {
+              window.dispatchEvent(new Event("legamind:rag-toggle"));
+              closePalette();
+            },
+          },
+        ]
+      : []),
   ];
 
   const filteredCommands = () => {

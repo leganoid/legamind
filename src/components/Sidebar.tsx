@@ -2,6 +2,7 @@ import { For, Show, createSignal } from "solid-js";
 import { api } from "../api";
 import type { MessageHitRow, Session } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
+import PromptDialog from "./PromptDialog";
 
 interface Props {
   sessions: Session[];
@@ -16,6 +17,7 @@ export default function Sidebar(props: Props) {
   const [query, setQuery] = createSignal("");
   const [hits, setHits] = createSignal<MessageHitRow[]>([]);
   const [pendingDelete, setPendingDelete] = createSignal<Session | null>(null);
+  const [renameTarget, setRenameTarget] = createSignal<Session | null>(null);
   let timer: number | undefined;
 
   const filtered = () => {
@@ -42,10 +44,7 @@ export default function Sidebar(props: Props) {
   };
 
   const rename = (session: Session) => {
-    const title = window.prompt("Название сессии", session.title);
-    if (title && title.trim() && title.trim() !== session.title) {
-      props.onRename(session.id, title.trim());
-    }
+    setRenameTarget(session);
   };
 
   const remove = (session: Session) => {
@@ -125,6 +124,20 @@ export default function Sidebar(props: Props) {
           )}
         </For>
       </div>
+
+      <PromptDialog
+        open={renameTarget() !== null}
+        title="Переименовать сессию"
+        label="Название"
+        initial={renameTarget()?.title ?? ""}
+        confirmLabel="Сохранить"
+        onConfirm={(title) => {
+          const session = renameTarget();
+          setRenameTarget(null);
+          if (session) props.onRename(session.id, title);
+        }}
+        onCancel={() => setRenameTarget(null)}
+      />
 
       <ConfirmDialog
         open={pendingDelete() !== null}
