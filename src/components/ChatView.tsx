@@ -14,6 +14,7 @@ import type {
   ToolApproval,
   ToolEventPayload,
   ToolRunRow,
+  RagIndexedPayload,
 } from "../types";
 import Sidebar from "./Sidebar";
 import ChatMessage from "./Message";
@@ -225,6 +226,7 @@ export default function ChatView(props: Props) {
         const stats = await api.ragReindex(id);
         setIndexStats(stats);
         setNotice(`Индекс готов: ${stats.chunks} фрагментов из ${stats.files} файлов`);
+        void api.watchWorkdir(id).catch(() => {});
       } catch (err) {
         setNotice(`Рабочая папка: ${session.workdir}. Индекс не построен: ${String(err)}`);
       }
@@ -334,6 +336,11 @@ export default function ChatView(props: Props) {
     }
     await refreshContext();
     void ensureIndex(id, session?.workdir ?? null);
+    if (session?.workdir) {
+      void api.watchWorkdir(id).catch(() => {});
+    } else {
+      void api.unwatchWorkdir().catch(() => {});
+    }
   };
 
   const createSession = async () => {
@@ -615,6 +622,12 @@ export default function ChatView(props: Props) {
       }),
     );
 
+    unlisteners.push(
+      await listen<RagIndexedPayload>("rag:indexed", (event) => {
+        setIndexStats({ chunks: event.payload.chunks, files: event.payload.files });
+      }),
+    );
+
     // Ctrl+N из App: создать новую сессию.
     const newSession = () => createSession();
     window.addEventListener("legamind:new-session", newSession);
@@ -631,6 +644,10 @@ export default function ChatView(props: Props) {
       window.removeEventListener("legamind:project-index", paletteIndex);
       window.removeEventListener("legamind:tool-history", paletteHistory);
       window.removeEventListener("legamind:rag-toggle", paletteRag);
+    });
+
+    onCleanup(() => {
+      void api.unwatchWorkdir().catch(() => {});
     });
 
     onCleanup(() => unlisteners.forEach((fn) => fn()));

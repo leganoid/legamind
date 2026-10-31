@@ -128,6 +128,8 @@ export const api = {
   dbBackup: (encrypted = false) => invoke<string>("db_backup", { encrypted }),
   dbRestore: () => invoke<string>("db_restore"),
   dbBackupInfo: () => invoke<BackupInfo>("db_backup_info"),
+  watchWorkdir: (sessionId: string) => invoke<string>("watch_workdir", { sessionId }),
+  unwatchWorkdir: () => invoke<void>("unwatch_workdir"),
 
   pickFolder: () => invoke<string | null>("pick_folder"),
   sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>

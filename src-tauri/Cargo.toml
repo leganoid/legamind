@@ -33,6 +33,7 @@ keyring = { version = "3", features = ["windows-native"] }
 base64 = "0.22"
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 similar = "2.7.0"
+notify = "8.2.0"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["dpapi", "wincrypt", "minwindef", "winbase"] }

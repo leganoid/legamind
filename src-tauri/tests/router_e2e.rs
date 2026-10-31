@@ -94,6 +94,8 @@ fn make_state(port: u16) -> (AppState, std::path::PathBuf) {
         cancel: Mutex::new(HashMap::new()),
         engine_error: Mutex::new(None),
         approvals: Mutex::new(HashMap::new()),
+        watcher: Mutex::new(None),
+        watch_root: Mutex::new(None),
     };
     (state, db_path)
 }

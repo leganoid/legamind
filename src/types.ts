@@ -363,6 +363,11 @@ export interface BackupInfo {
   auto_count: number;
 }
 
+export interface RagIndexedPayload {
+  chunks: number;
+  files: number;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

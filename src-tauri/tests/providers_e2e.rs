@@ -32,6 +32,8 @@ fn make_state() -> AppState {
         cancel: Mutex::new(HashMap::new()),
         engine_error: Mutex::new(None),
         approvals: Mutex::new(HashMap::new()),
+        watcher: Mutex::new(None),
+        watch_root: Mutex::new(None),
     }
 }
 

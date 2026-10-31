@@ -16,6 +16,7 @@ pub mod tools;
 pub mod web;
 pub mod workspace;
 pub mod backup;
+pub mod watcher;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -38,6 +39,8 @@ pub struct AppState {
     pub engine_error: Mutex<Option<String>>,
     /// Ожидающие подтверждения записи файлов (approval_id → канал ответа).
     pub approvals: Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
+    pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
+    pub watch_root: Mutex<Option<PathBuf>>,
 }
 
 impl AppState {
@@ -306,6 +309,8 @@ pub fn run() {
                 cancel: Mutex::new(HashMap::new()),
                 engine_error: Mutex::new(None),
                 approvals: Mutex::new(HashMap::new()),
+                watcher: Mutex::new(None),
+                watch_root: Mutex::new(None),
             });
 
             // Автокопия: проверка раз в час, фактически — не чаще раза в 24 часа.
@@ -359,6 +364,8 @@ pub fn run() {
             backup::db_backup,
             backup::db_restore,
             backup::db_backup_info,
+            watcher::watch_workdir,
+            watcher::unwatch_workdir,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,
