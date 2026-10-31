@@ -17,6 +17,7 @@ pub mod web;
 pub mod workspace;
 pub mod backup;
 pub mod watcher;
+pub mod local_models;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -368,6 +369,9 @@ pub fn run() {
             backup::db_backup_info,
             watcher::watch_workdir,
             watcher::unwatch_workdir,
+            local_models::local_models_list,
+            local_models::local_model_add,
+            local_models::local_model_remove,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

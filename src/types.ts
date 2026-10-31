@@ -378,6 +378,16 @@ export interface ToolActivity {
   status: "running" | "pending" | "done";
 }
 
+export interface LocalModelRow {
+  id: string;
+  label: string;
+  path: string;
+  device: string;
+  max_tokens: number;
+  thinks: boolean;
+  size_gb: number;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

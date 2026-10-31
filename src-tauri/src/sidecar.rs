@@ -88,17 +88,26 @@ fn python_path(app: &AppHandle) -> PathBuf {
     PathBuf::from("python")
 }
 
-/// Пишет `engine_config.json`: пути моделей и каталог кэша компиляции.
-fn write_config(data_dir: &Path) -> Result<PathBuf> {
+/// Пишет `engine_config.json`: пути моделей (встроенные + пользовательские) и кэш.
+fn write_config(
+    data_dir: &Path,
+    custom: &serde_json::Map<String, serde_json::Value>,
+) -> Result<PathBuf> {
     let path = data_dir.join("engine_config.json");
+    let mut models = json!({
+        "qwen3-14b": {"path": r"C:\Models\qwen3-14b-int4-ov", "label": "Qwen3-14B", "device": "GPU", "thinks": true, "size_gb": 9.06, "max_tokens": 2048},
+        "coder-30b": {"path": r"C:\Models\qwen3-coder-30b-a3b-int4-ov", "label": "Qwen3-Coder-30B-A3B", "device": "GPU", "thinks": false, "size_gb": 15.2, "max_tokens": 2048},
+        "coder-7b": {"path": r"C:\Models\qwen2.5-coder-7b-int4-ov", "label": "Qwen2.5-Coder-7B", "device": "GPU", "thinks": false, "size_gb": 4.2, "max_tokens": 2048},
+        "qwen-1.5b": {"path": r"C:\Models\qwen2.5-1.5b-int4-ov", "label": "Qwen2.5-1.5B", "device": "NPU", "thinks": false, "size_gb": 0.87, "max_tokens": 1024}
+    });
+    if let Some(object) = models.as_object_mut() {
+        for (id, value) in custom {
+            object.insert(id.clone(), value.clone());
+        }
+    }
     let config = json!({
         "cache_dir": r"C:\Models\cache",
-        "models": {
-            "qwen3-14b": {"path": r"C:\Models\qwen3-14b-int4-ov", "label": "Qwen3-14B", "device": "GPU", "thinks": true, "size_gb": 9.06, "max_tokens": 2048},
-            "coder-30b": {"path": r"C:\Models\qwen3-coder-30b-a3b-int4-ov", "label": "Qwen3-Coder-30B-A3B", "device": "GPU", "thinks": false, "size_gb": 15.2, "max_tokens": 2048},
-            "coder-7b": {"path": r"C:\Models\qwen2.5-coder-7b-int4-ov", "label": "Qwen2.5-Coder-7B", "device": "GPU", "thinks": false, "size_gb": 4.2, "max_tokens": 2048},
-            "qwen-1.5b": {"path": r"C:\Models\qwen2.5-1.5b-int4-ov", "label": "Qwen2.5-1.5B", "device": "NPU", "thinks": false, "size_gb": 0.87, "max_tokens": 1024}
-        }
+        "models": models
     });
     std::fs::write(&path, serde_json::to_vec_pretty(&config)?)
         .with_context(|| format!("не удалось записать {}", path.display()))?;
@@ -109,7 +118,15 @@ fn spawn_blocking(app: &AppHandle) -> Result<Sidecar> {
     let state = app.state::<AppState>();
     let python = python_path(app);
     let root = engine_root(app);
-    let config = write_config(&state.data_dir)?;
+    let custom = state
+        .db
+        .setting_get("local_models")
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let config = write_config(&state.data_dir, &custom)?;
 
     let mut cmd = Command::new(&python);
     cmd.arg("-m")

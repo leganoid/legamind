@@ -19,6 +19,7 @@ import type {
   FeedbackRow,
   FinetuneStatus,
   LessonRow,
+  LocalModelRow,
   MemoryRow,
   MessageHitRow,
   ModelInfo,
@@ -129,6 +130,15 @@ export const api = {
   dbBackup: (encrypted = false) => invoke<string>("db_backup", { encrypted }),
   dbRestore: () => invoke<string>("db_restore"),
   dbBackupInfo: () => invoke<BackupInfo>("db_backup_info"),
+  localModelsList: () => invoke<LocalModelRow[]>("local_models_list"),
+  localModelAdd: (input: {
+    path: string;
+    label: string;
+    device?: string;
+    max_tokens?: number;
+    thinks?: boolean;
+  }) => invoke<LocalModelRow>("local_model_add", { input }),
+  localModelRemove: (id: string) => invoke<void>("local_model_remove", { id }),
   watchWorkdir: (sessionId: string) => invoke<string>("watch_workdir", { sessionId }),
   unwatchWorkdir: () => invoke<void>("unwatch_workdir"),
 
