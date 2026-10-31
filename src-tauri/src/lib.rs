@@ -260,10 +260,37 @@ pub fn run() {
                         let size = monitor.size();
                         let logical_w = size.width as f64 / scale;
                         let logical_h = size.height as f64 / scale;
-                        let width = (logical_w - 32.0).max(640.0);
-                        let height = (logical_h - 72.0).max(480.0);
-                        let _ = window.set_size(tauri::LogicalSize::new(width, height));
-                        let _ = window.set_position(tauri::LogicalPosition::new(12.0, 6.0));
+                        let max_width = (logical_w - 32.0).max(640.0);
+                        let max_height = (logical_h - 72.0).max(480.0);
+
+                        // Не раздуваем окно: уменьшаем только если оно больше монитора.
+                        if let Ok(current) = window.inner_size() {
+                            let logical = current.to_logical::<f64>(scale);
+                            if logical.width > max_width || logical.height > max_height {
+                                let _ = window.set_size(tauri::LogicalSize::new(
+                                    logical.width.min(max_width),
+                                    logical.height.min(max_height),
+                                ));
+                            }
+                        }
+
+                        // И не даём окну уехать за пределы монитора.
+                        if let (Ok(position), Ok(outer)) =
+                            (window.outer_position(), window.outer_size())
+                        {
+                            let monitor_position = monitor.position();
+                            let max_x = monitor_position.x + size.width as i32 - outer.width as i32;
+                            let max_y = monitor_position.y + size.height as i32 - outer.height as i32;
+                            let x = position
+                                .x
+                                .clamp(monitor_position.x, max_x.max(monitor_position.x));
+                            let y = position
+                                .y
+                                .clamp(monitor_position.y, max_y.max(monitor_position.y));
+                            if x != position.x || y != position.y {
+                                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                            }
+                        }
                     }
                 });
             }
