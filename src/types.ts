@@ -415,6 +415,7 @@ export interface EngineStats {
 export interface PickedAttachment {
   name: string;
   path: string;
+  kind: string;
   content: string;
   size: number;
 }

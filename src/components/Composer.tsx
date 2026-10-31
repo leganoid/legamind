@@ -128,10 +128,18 @@ export default function Composer(props: Props) {
       </Show>
       <Show when={props.attachments.length > 0}>
         <div class="attachment-chips">
+          <span class="muted small">Вложения:</span>
           <For each={props.attachments}>
             {(file, index) => (
               <span class="attachment-chip">
-                📎 {file.name}
+                {file.kind === "pdf"
+                  ? "📕"
+                  : file.kind === "image"
+                    ? "🖼"
+                    : file.kind === "binary"
+                      ? "🧩"
+                      : "📄"}{" "}
+                {file.name}
                 <span class="muted small"> · {(file.size / 1024).toFixed(1)} КБ</span>
                 <button
                   class="icon-btn"
@@ -172,7 +180,7 @@ export default function Composer(props: Props) {
         </details>
         <button
           class="btn ghost small"
-          title="Приложить текстовый или кодовый файл"
+          title="Приложить файл: текст, PDF, изображение или бинарник"
           onClick={() => props.onAttach()}
           disabled={props.busy || props.disabled}
         >
