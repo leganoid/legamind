@@ -161,8 +161,20 @@ export default function SettingsView() {
     }
   };
 
-  const backupDb = async () => {
+  const exportAllData = async () => {
     setDbBusy(true);
+    setError(null);
+    try {
+      const path = await api.exportAll();
+      setNotice(`Все чаты экспортированы: ${path}`);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setDbBusy(false);
+    }
+  };
+
+  const backupDb = async () => {    setDbBusy(true);
     setError(null);
     try {
       const path = await api.dbBackup(encryptBackup());
@@ -449,6 +461,9 @@ export default function SettingsView() {
           </button>
           <button class="btn ghost" onClick={() => setRestoreOpen(true)} disabled={dbBusy()}>
             ♻ Восстановить из копии…
+          </button>
+          <button class="btn ghost" onClick={() => void exportAllData()} disabled={dbBusy()}>
+            📦 Экспорт всех чатов (JSON)
           </button>
         </div>
         <label class="inline">

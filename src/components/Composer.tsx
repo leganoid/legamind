@@ -31,6 +31,14 @@ const COMMANDS: CommandHint[] = [
   { cmd: "/help", description: "список команд" },
 ];
 
+const PRESETS: { label: string; prefix: string }[] = [
+  { label: "Код", prefix: "Разбери код и предложи улучшения:\n" },
+  { label: "Анализ", prefix: "Проанализируй и выдели главное:\n" },
+  { label: "Перевод", prefix: "Переведи на русский, сохранив смысл:\n" },
+  { label: "Резюме", prefix: "Сделай краткое резюме:\n" },
+  { label: "План", prefix: "Составь пошаговый план:\n" },
+];
+
 /** Ввод: Enter — отправить, Shift+Enter — перенос, Ctrl+Enter — тоже отправить. */
 export default function Composer(props: Props) {
   const [text, setText] = createSignal("");
@@ -92,6 +100,12 @@ export default function Composer(props: Props) {
     inputRef?.focus();
   };
 
+  const applyPreset = (prefix: string) => {
+    const current = text().trim();
+    setText(current ? `${prefix}${current}` : prefix);
+    inputRef?.focus();
+  };
+
   return (
     <div class="composer">
       <Show when={hints().length > 0}>
@@ -146,6 +160,16 @@ export default function Composer(props: Props) {
         onKeyDown={onKeyDown}
       />
       <div class="composer-actions">
+        <details class="menu">
+          <summary class="btn ghost small">✨ Пресеты</summary>
+          <div class="menu-items">
+            <For each={PRESETS}>
+              {(preset) => (
+                <button onClick={() => applyPreset(preset.prefix)}>{preset.label}</button>
+              )}
+            </For>
+          </div>
+        </details>
         <button
           class="btn ghost small"
           title="Приложить текстовый или кодовый файл"

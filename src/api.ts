@@ -142,6 +142,7 @@ export const api = {
   dbBackup: (encrypted = false) => invoke<string>("db_backup", { encrypted }),
   dbRestore: () => invoke<string>("db_restore"),
   dbBackupInfo: () => invoke<BackupInfo>("db_backup_info"),
+  exportAll: () => invoke<string>("export_all"),
   localModelsList: () => invoke<LocalModelRow[]>("local_models_list"),
   localModelAdd: (input: {
     path: string;

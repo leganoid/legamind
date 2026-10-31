@@ -20,6 +20,7 @@ pub mod watcher;
 pub mod local_models;
 pub mod logs;
 pub mod attachments;
+pub mod export;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -379,6 +380,7 @@ pub fn run() {
             local_models::local_model_remove,
             logs::logs_tail,
             attachments::pick_text_attachment,
+            export::export_all,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,
