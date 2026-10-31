@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import { api } from "./api";
-import type { ModelInfo, ProviderView } from "./types";
+import type { ModelInfo, ProviderView, Session } from "./types";
 import ChatView from "./components/ChatView";
 import DebateView from "./components/DebateView";
 import ModelsView from "./components/ModelsView";
@@ -51,6 +51,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [paletteQuery, setPaletteQuery] = createSignal("");
   const [paletteIndex, setPaletteIndex] = createSignal(0);
+  const [paletteSessions, setPaletteSessions] = createSignal<Session[]>([]);
 
   const providerLabels = createMemo(() => {
     const map: Record<string, string> = { local: "Локальные" };
@@ -106,6 +107,23 @@ export default function App() {
         closePalette();
       },
     },
+    ...paletteSessions()
+      .slice(0, 10)
+      .map((session) => ({
+        id: `session-${session.id}`,
+        label: session.title,
+        hint: "Сессия",
+        icon: "💬",
+        run: () => {
+          setView("chat");
+          window.setTimeout(() => {
+            window.dispatchEvent(
+              new CustomEvent("legamind:open-session", { detail: session.id }),
+            );
+          }, 80);
+          closePalette();
+        },
+      })),
     {
       id: "data-dir",
       label: "Открыть папку данных",
@@ -184,6 +202,10 @@ export default function App() {
       if (event.key === "Escape" && paletteOpen()) closePalette();
     });
     window.addEventListener("beforeunload", () => window.clearInterval(timer));
+    window.addEventListener("legamind:sessions", (event) => {
+      const detail = (event as CustomEvent<Session[]>).detail;
+      if (Array.isArray(detail)) setPaletteSessions(detail);
+    });
   });
 
   return (

@@ -329,7 +329,17 @@ export default function ChatView(props: Props) {
     }
   };
 
-  const openSession = async (id: string) => {
+  const focusMessage = (messageId: string) => {
+    window.setTimeout(() => {
+      const element = document.getElementById(`msg-${messageId}`);
+      if (!element) return;
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      element.classList.add("flash");
+      window.setTimeout(() => element.classList.remove("flash"), 2200);
+    }, 200);
+  };
+
+  const openSession = async (id: string, messageId?: string) => {
     setActiveId(id);
     setError(null);
     setToolsLive([]);
@@ -347,7 +357,19 @@ export default function ChatView(props: Props) {
     } else {
       void api.unwatchWorkdir().catch(() => {});
     }
+    if (messageId) focusMessage(messageId);
   };
+
+  // Сессии для command palette и переход из неё.
+  createEffect(() => {
+    window.dispatchEvent(new CustomEvent("legamind:sessions", { detail: sessions() }));
+  });
+  const onPaletteSession = (event: Event) => {
+    const id = (event as CustomEvent<string>).detail;
+    if (id) void openSession(id);
+  };
+  window.addEventListener("legamind:open-session", onPaletteSession);
+  onCleanup(() => window.removeEventListener("legamind:open-session", onPaletteSession));
 
   const createSession = async () => {
     const chosen = modelId() || defaultModel();
@@ -762,7 +784,7 @@ export default function ChatView(props: Props) {
       <Sidebar
         sessions={sessions()}
         activeId={activeId()}
-        onSelect={(id) => openSession(id)}
+        onSelect={(id, messageId) => openSession(id, messageId)}
         onCreate={createSession}
         onRename={renameSession}
         onDelete={deleteSession}

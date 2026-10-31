@@ -1521,6 +1521,19 @@ label.inline {
   max-width: 100%;
 }
 
+.message.flash {
+  animation: message-flash 2.2s ease-out;
+}
+
+@keyframes message-flash {
+  0% {
+    box-shadow: 0 0 0 2px #4c7dff inset;
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent inset;
+  }
+}
+
 .command-hint.active {
   border-color: #4c7dff;
   background: var(--panel-2);

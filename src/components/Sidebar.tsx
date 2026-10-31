@@ -7,7 +7,7 @@ import PromptDialog from "./PromptDialog";
 interface Props {
   sessions: Session[];
   activeId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, messageId?: string) => void;
   onCreate: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -73,7 +73,10 @@ export default function Sidebar(props: Props) {
           <div class="muted small pad">Найдено в сообщениях</div>
           <For each={hits()}>
             {(hit) => (
-              <button class="search-hit" onClick={() => props.onSelect(hit.session_id)}>
+              <button
+                class="search-hit"
+                onClick={() => props.onSelect(hit.session_id, hit.message_id)}
+              >
                 <span class="search-hit-title">{hit.session_title}</span>
                 <span class="search-hit-snippet">{hit.snippet}</span>
               </button>

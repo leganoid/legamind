@@ -46,7 +46,10 @@ export default function Message(props: Props) {
   };
 
   return (
-    <article classList={{ message: true, user: isUser(), assistant: !isUser() }}>
+    <article
+      id={`msg-${props.message.id}`}
+      classList={{ message: true, user: isUser(), assistant: !isUser() }}
+    >
       <header>
         <span class="message-author">{isUser() ? "Вы" : props.modelLabel(props.message.model_id)}</span>
         <Show when={!isUser() && props.message.tokens}>
