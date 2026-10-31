@@ -357,6 +357,12 @@ export interface RagStats {
   files: number;
 }
 
+export interface BackupInfo {
+  last_auto: string | null;
+  dir: string;
+  auto_count: number;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

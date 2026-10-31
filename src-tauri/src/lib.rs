@@ -242,6 +242,7 @@ pub fn run() {
                 .user_agent("legamind/0.1")
                 .build()?;
             secrets::migrate_legacy_keys(&db);
+            let _ = backup::auto_backup(&db, &data_dir);
 
             // На HiDPI-экранах окно из конфига (логические пиксели) может не влезть
             // в экран. После появления окна подгоняем размер под монитор.
@@ -307,6 +308,16 @@ pub fn run() {
                 approvals: Mutex::new(HashMap::new()),
             });
 
+            // Автокопия: проверка раз в час, фактически — не чаще раза в 24 часа.
+            let backup_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                    let state = backup_handle.state::<AppState>();
+                    let _ = backup::auto_backup(&state.db, &state.data_dir);
+                }
+            });
+
             // Сайдкар стартует вместе с приложением, но не блокирует окно.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -347,6 +358,7 @@ pub fn run() {
             rag::rag_set_enabled,
             backup::db_backup,
             backup::db_restore,
+            backup::db_backup_info,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

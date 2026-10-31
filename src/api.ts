@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppInfo,
+  BackupInfo,
   ChatMessageRow,
   ChatStart,
   AppendResult,
@@ -126,6 +127,7 @@ export const api = {
   ragSetEnabled: (enabled: boolean) => invoke<boolean>("rag_set_enabled", { enabled }),
   dbBackup: () => invoke<string>("db_backup"),
   dbRestore: () => invoke<string>("db_restore"),
+  dbBackupInfo: () => invoke<BackupInfo>("db_backup_info"),
 
   pickFolder: () => invoke<string | null>("pick_folder"),
   sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>

@@ -919,11 +919,9 @@ export default function ChatView(props: Props) {
                   <div>
                     <strong>Выберите рабочую папку</strong>
                     <p class="muted small">
-                      Модель будет читать и менять файлы только в ней.
+                      Нажмите <b>«📁 Выбрать папку»</b> в шапке чата. Модель будет читать и менять
+                      файлы только в ней.
                     </p>
-                    <button class="btn small" onClick={chooseWorkdir}>
-                      📁 {activeSession()?.workdir ? "Сменить папку" : "Выбрать папку"}
-                    </button>
                   </div>
                 </div>
                 <div class="step">

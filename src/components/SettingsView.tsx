@@ -1,6 +1,6 @@
 import { For, Show, createSignal, onMount } from "solid-js";
 import { api } from "../api";
-import type { AppInfo, WebConfigView, WebTestResult } from "../types";
+import type { AppInfo, BackupInfo, WebConfigView, WebTestResult } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function SettingsView() {
@@ -20,6 +20,7 @@ export default function SettingsView() {
   const [resetOpen, setResetOpen] = createSignal(false);
   const [restoreOpen, setRestoreOpen] = createSignal(false);
   const [dbBusy, setDbBusy] = createSignal(false);
+  const [backupInfo, setBackupInfo] = createSignal<BackupInfo | null>(null);
   const [health, setHealth] = createSignal<
     { engine: string; search: string; ok: boolean } | null
   >(null);
@@ -42,6 +43,14 @@ export default function SettingsView() {
     setProvider(config.provider);
     setSearxngUrl(config.searxng_url);
     setGoogleCx(config.google_cx);
+  };
+
+  const loadBackupInfo = async () => {
+    try {
+      setBackupInfo(await api.dbBackupInfo());
+    } catch {
+      setBackupInfo(null);
+    }
   };
 
   const saveWeb = async (patch: { enabled?: boolean }) => {
@@ -139,6 +148,7 @@ export default function SettingsView() {
     try {
       const path = await api.dbBackup();
       setNotice(`Копия базы сохранена: ${path}`);
+      await loadBackupInfo();
     } catch (err) {
       const message = String(err);
       if (!message.toLowerCase().includes("отмен")) setError(message);
@@ -176,6 +186,7 @@ export default function SettingsView() {
   onMount(async () => {
     await load();
     await loadWeb();
+    await loadBackupInfo();
   });
 
   return (
@@ -404,6 +415,18 @@ export default function SettingsView() {
         </div>
         <Show when={dbBusy()}>
           <p class="muted small">Работаю с базой…</p>
+        </Show>
+        <Show when={backupInfo()}>
+          <p class="muted small">
+            Автокопия создаётся при запуске и далее не чаще раза в 24 часа; хранятся 5 последних.
+            Сейчас копий: {backupInfo()!.auto_count}.
+            {backupInfo()!.last_auto
+              ? ` Последняя: ${new Date(backupInfo()!.last_auto!).toLocaleString("ru-RU")}.`
+              : " Пока не создавалась."}
+          </p>
+          <button class="btn ghost" onClick={() => void api.openPath(backupInfo()!.dir)}>
+            📂 Открыть папку копий
+          </button>
         </Show>
       </section>
       </Show>
