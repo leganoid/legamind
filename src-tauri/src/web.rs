@@ -4,7 +4,7 @@
 //! Tavily и Brave (API-ключи). Результаты вставляются в system-промпт как
 //! «актуальные данные», а ссылки сохраняются для показа источников.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
@@ -26,10 +26,145 @@ pub struct WebResult {
     pub snippet: String,
 }
 
+/// Уровень доверия источника: чем меньше число, тем надёжнее.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TrustLevel {
+    Official = 0,
+    Scientific = 1,
+    Community = 2,
+    Other = 3,
+}
+
+impl TrustLevel {
+    pub fn label(self) -> &'static str {
+        match self {
+            TrustLevel::Official => "официальная документация",
+            TrustLevel::Scientific => "научная работа",
+            TrustLevel::Community => "сообщество/код",
+            TrustLevel::Other => "блог/прочее",
+        }
+    }
+}
+
+fn host_of(url: &str) -> String {
+    url.split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_lowercase()
+}
+
+fn host_contains(host: &str, patterns: &[&str]) -> bool {
+    patterns.iter().any(|pattern| host.contains(pattern))
+}
+
+/// Классифицирует источник по домену.
+pub fn trust_level(url: &str) -> TrustLevel {
+    let host = host_of(url);
+    if host_contains(
+        &host,
+        &[
+            "arxiv.org",
+            "doi.org",
+            "ieee.org",
+            "acm.org",
+            "pubmed.ncbi.nlm.nih.gov",
+            "ncbi.nlm.nih.gov",
+            "nature.com",
+            "science.org",
+            "springer.com",
+            "sciencedirect.com",
+            "semanticscholar.org",
+            "jstor.org",
+        ],
+    ) {
+        return TrustLevel::Scientific;
+    }
+    if host_contains(
+        &host,
+        &[
+            "docs.",
+            "developer.",
+            "learn.microsoft.com",
+            "openvino.ai",
+            "intel.com",
+            "nvidia.com",
+            "python.org",
+            "rust-lang.org",
+            "mozilla.org",
+            "kernel.org",
+            "gnu.org",
+            "w3.org",
+            "ietf.org",
+            "rfc-editor.org",
+            "postgresql.org",
+            "sqlite.org",
+            "docker.com",
+            "kubernetes.io",
+            "openssl.org",
+        ],
+    ) {
+        return TrustLevel::Official;
+    }
+    if host_contains(
+        &host,
+        &[
+            "stackoverflow.com",
+            "stackexchange.com",
+            "github.com",
+            "gitlab.com",
+            "wikipedia.org",
+            "serverfault.com",
+            "superuser.com",
+            "askubuntu.com",
+        ],
+    ) {
+        return TrustLevel::Community;
+    }
+    TrustLevel::Other
+}
+
+/// Порядок источников по доверию; в strict низкокачественные отбрасываются.
+pub fn rank_results(results: Vec<WebResult>, quality: &str) -> Vec<WebResult> {
+    let mut ranked: Vec<(TrustLevel, usize, WebResult)> = results
+        .into_iter()
+        .enumerate()
+        .map(|(index, result)| (trust_level(&result.url), index, result))
+        .collect();
+    ranked.sort_by_key(|(tier, index, _)| (*tier, *index));
+
+    let selected: Vec<WebResult> = if quality == "open" {
+        let mut original = ranked;
+        original.sort_by_key(|(_, index, _)| *index);
+        original.into_iter().map(|(_, _, result)| result).collect()
+    } else if quality == "balanced" {
+        ranked.into_iter().map(|(_, _, result)| result).collect()
+    } else {
+        let filtered: Vec<(TrustLevel, usize, WebResult)> = ranked
+            .iter()
+            .filter(|(tier, _, _)| *tier <= TrustLevel::Community)
+            .cloned()
+            .collect();
+        if filtered.is_empty() {
+            ranked.into_iter().take(2).map(|(_, _, result)| result).collect()
+        } else {
+            filtered.into_iter().map(|(_, _, result)| result).collect()
+        }
+    };
+    selected
+}
+
+pub fn quality(state: &AppState) -> String {
+    setting_string(state, "web_quality", "strict")
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct WebConfigView {
     pub enabled: bool,
     pub provider: String,
+    pub quality: String,
     pub searxng_url: String,
     pub google_cx: String,
     pub has_tavily: bool,
@@ -79,6 +214,7 @@ pub async fn web_config_get(state: State<'_, AppState>) -> Result<WebConfigView,
     Ok(WebConfigView {
         enabled: enabled(&state),
         provider: provider(&state),
+        quality: quality(&state),
         searxng_url: setting_string(&state, "web_searxng_url", ""),
         google_cx: setting_string(&state, "web_google_cx", ""),
         has_tavily: web_key(&state, "tavily").is_some(),
@@ -91,6 +227,7 @@ pub async fn web_config_get(state: State<'_, AppState>) -> Result<WebConfigView,
 pub struct WebConfigInput {
     pub enabled: Option<bool>,
     pub provider: Option<String>,
+    pub quality: Option<String>,
     pub searxng_url: Option<String>,
     pub google_cx: Option<String>,
     pub tavily_key: Option<String>,
@@ -117,6 +254,7 @@ pub async fn web_config_set(
             "wikipedia",
             "stackexchange",
             "github",
+            "arxiv",
             "bing",
             "ddg",
             "searxng",
@@ -132,6 +270,16 @@ pub async fn web_config_set(
         state
             .db
             .setting_set("web_provider", &provider)
+            .map_err(|e| e.to_string())?;
+    }
+    if let Some(quality) = input.quality {
+        let quality = quality.trim().to_lowercase();
+        if !["strict", "balanced", "open"].contains(&quality.as_str()) {
+            return Err("Неизвестный режим качества источников".into());
+        }
+        state
+            .db
+            .setting_set("web_quality", &quality)
             .map_err(|e| e.to_string())?;
     }
     if let Some(url) = input.searxng_url {
@@ -247,6 +395,7 @@ pub async fn search(state: &AppState, query: &str, limit: usize) -> Result<Vec<W
         "wikipedia" => search_wikipedia(state, query, limit).await,
         "stackexchange" => search_stackexchange(state, query, limit).await,
         "github" => search_github(state, query, limit).await,
+        "arxiv" => search_arxiv(state, query, limit).await,
         _ => auto_search(state, query, limit).await,
     }
 }
@@ -256,16 +405,25 @@ pub async fn search(state: &AppState, query: &str, limit: usize) -> Result<Vec<W
 async fn auto_search(state: &AppState, query: &str, limit: usize) -> Result<Vec<WebResult>> {
     let mut errors: Vec<String> = Vec::new();
 
+    // Для технических запросов добавляем научные статьи arXiv к обычной выдаче.
+    let mut extras: Vec<WebResult> = Vec::new();
+    if is_technical_query(query) {
+        match search_arxiv(state, query, 3).await {
+            Ok(results) => extras = results,
+            Err(err) => errors.push(format!("arxiv: {err}")),
+        }
+    }
+
     if let Some(key) = web_key(state, "tavily") {
         match search_tavily(state, &key, query, limit).await {
-            Ok(results) if !results.is_empty() => return Ok(results),
+            Ok(results) if !results.is_empty() => return Ok(merge_results(extras, results, limit)),
             Ok(_) => errors.push("tavily: пусто".into()),
             Err(err) => errors.push(format!("tavily: {err}")),
         }
     }
     if let Some(key) = web_key(state, "brave") {
         match search_brave(state, &key, query, limit).await {
-            Ok(results) if !results.is_empty() => return Ok(results),
+            Ok(results) if !results.is_empty() => return Ok(merge_results(extras, results, limit)),
             Ok(_) => errors.push("brave: пусто".into()),
             Err(err) => errors.push(format!("brave: {err}")),
         }
@@ -274,7 +432,9 @@ async fn auto_search(state: &AppState, query: &str, limit: usize) -> Result<Vec<
     if let Some(key) = web_key(state, "google") {
         if !google_cx.is_empty() {
             match search_google(state, &key, &google_cx, query, limit).await {
-                Ok(results) if !results.is_empty() => return Ok(results),
+                Ok(results) if !results.is_empty() => {
+                    return Ok(merge_results(extras, results, limit))
+                }
                 Ok(_) => errors.push("google: пусто".into()),
                 Err(err) => errors.push(format!("google: {err}")),
             }
@@ -283,36 +443,39 @@ async fn auto_search(state: &AppState, query: &str, limit: usize) -> Result<Vec<
     let searxng = setting_string(state, "web_searxng_url", "");
     if !searxng.is_empty() {
         match search_searxng(state, &searxng, query, limit).await {
-            Ok(results) if !results.is_empty() => return Ok(results),
+            Ok(results) if !results.is_empty() => return Ok(merge_results(extras, results, limit)),
             Ok(_) => errors.push("searxng: пусто".into()),
             Err(err) => errors.push(format!("searxng: {err}")),
         }
     }
     match search_wikipedia(state, query, limit).await {
-        Ok(results) if !results.is_empty() => return Ok(results),
+        Ok(results) if !results.is_empty() => return Ok(merge_results(extras, results, limit)),
         Ok(_) => errors.push("wikipedia: пусто".into()),
         Err(err) => errors.push(format!("wikipedia: {err}")),
     }
     match search_stackexchange(state, query, limit).await {
-        Ok(results) if !results.is_empty() => return Ok(results),
+        Ok(results) if !results.is_empty() => return Ok(merge_results(extras, results, limit)),
         Ok(_) => errors.push("stackexchange: пусто".into()),
         Err(err) => errors.push(format!("stackexchange: {err}")),
     }
     match search_github(state, query, limit).await {
-        Ok(results) if !results.is_empty() => return Ok(results),
+        Ok(results) if !results.is_empty() => return Ok(merge_results(extras, results, limit)),
         Ok(_) => errors.push("github: пусто".into()),
         Err(err) => errors.push(format!("github: {err}")),
     }
     match search_yandex(state, query, limit).await {
-        Ok(results) if !results.is_empty() => return Ok(results),
+        Ok(results) if !results.is_empty() => return Ok(merge_results(extras, results, limit)),
         Ok(_) => errors.push("yandex: пусто".into()),
         Err(err) => errors.push(format!("yandex: {err}")),
     }
     // Yahoo — только как последний резерв: выдача нестабильна и может блокироваться.
     match search_yahoo(state, query, limit).await {
-        Ok(results) if !results.is_empty() => return Ok(results),
+        Ok(results) if !results.is_empty() => return Ok(merge_results(extras, results, limit)),
         Ok(_) => errors.push("yahoo: пусто".into()),
         Err(err) => errors.push(format!("yahoo: {err}")),
+    }
+    if !extras.is_empty() {
+        return Ok(extras);
     }
     Err(anyhow!(
         "Поиск не дал результатов. Добавьте ключ Tavily/Brave или свой SearxNG в настройках. Попытки: {}",
@@ -320,8 +483,135 @@ async fn auto_search(state: &AppState, query: &str, limit: usize) -> Result<Vec<
     ))
 }
 
-fn encode_path(text: &str) -> String {
-    let mut out = String::new();
+fn merge_results(mut extras: Vec<WebResult>, results: Vec<WebResult>, limit: usize) -> Vec<WebResult> {
+    extras.extend(results);
+    let mut seen = HashSet::new();
+    let mut merged = Vec::new();
+    for result in extras {
+        if seen.insert(result.url.clone()) {
+            merged.push(result);
+        }
+    }
+    merged.truncate(limit.max(5));
+    merged
+}
+
+fn is_technical_query(query: &str) -> bool {
+    let text = query.to_lowercase();
+    [
+        "api",
+        "sdk",
+        "openvino",
+        "onnx",
+        "rust",
+        "python",
+        "c++",
+        "cuda",
+        "firmware",
+        "protocol",
+        "crc",
+        "dump",
+        "binres",
+        "jffs2",
+        "docker",
+        "kubernetes",
+        "llm",
+        "нейросет",
+        "алгоритм",
+        "протокол",
+        "прошивк",
+        "компил",
+        "датчик",
+    ]
+    .iter()
+    .any(|keyword| text.contains(keyword))
+}
+
+fn xml_tag(entry: &str, tag: &str) -> String {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    if let Some(start) = entry.find(&open) {
+        let rest = &entry[start + open.len()..];
+        if let Some(end) = rest.find(&close) {
+            return decode_entities(rest[..end].trim());
+        }
+    }
+    String::new()
+}
+
+/// Разбор Atom-ответа arXiv (без XML-крейта: нужны только title/id/summary).
+pub fn parse_arxiv(xml: &str, limit: usize) -> Vec<WebResult> {
+    let mut results = Vec::new();
+    for entry in xml.split("<entry>").skip(1) {
+        let title = xml_tag(entry, "title");
+        let url = xml_tag(entry, "id");
+        let summary = xml_tag(entry, "summary");
+        if url.is_empty() {
+            continue;
+        }
+        results.push(WebResult {
+            title: truncate_chars(title.replace('\n', " ").trim(), 200),
+            url,
+            snippet: truncate_chars(summary.replace('\n', " ").trim(), 400),
+        });
+        if results.len() >= limit {
+            break;
+        }
+    }
+    results
+}
+
+async fn arxiv_request(
+    state: &AppState,
+    search_query: &str,
+    limit: usize,
+) -> Result<Vec<WebResult>> {
+    let url = format!(
+        "https://export.arxiv.org/api/query?search_query={search_query}&start=0&max_results={limit}&sortBy=relevance"
+    );
+    let response = state
+        .client
+        .get(&url)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        bail!("arXiv: HTTP {}", response.status());
+    }
+    let text = response.text().await?;
+    Ok(parse_arxiv(&text, limit))
+}
+
+async fn search_arxiv(state: &AppState, query: &str, limit: usize) -> Result<Vec<WebResult>> {
+    let quoted = format!("all:%22{}%22", encode_path(query));
+    let results = arxiv_request(state, &quoted, limit).await?;
+    if !results.is_empty() {
+        return Ok(results);
+    }
+    // Если точная фраза не нашлась — ищем по отдельным терминам (OR), затем по первому.
+    let terms: Vec<String> = query
+        .split_whitespace()
+        .filter(|word| word.chars().count() > 2)
+        .take(3)
+        .map(encode_path)
+        .collect();
+    if terms.is_empty() {
+        return Ok(vec![]);
+    }
+    let fallback = terms
+        .iter()
+        .map(|term| format!("all:{term}"))
+        .collect::<Vec<_>>()
+        .join("+OR+");
+    let results = arxiv_request(state, &fallback, limit).await?;
+    if !results.is_empty() {
+        return Ok(results);
+    }
+    let first = format!("all:{}", terms[0]);
+    arxiv_request(state, &first, limit).await
+}
+
+fn encode_path(text: &str) -> String {    let mut out = String::new();
     for byte in text.as_bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
@@ -1211,14 +1501,30 @@ pub fn query_from_user(text: &str) -> String {
 /// Блок для system-промпта с результатами поиска.
 pub fn prompt_block(query: &str, results: &[WebResult]) -> String {
     let date = chrono::Local::now().format("%d.%m.%Y");
+    let low_confidence = results
+        .iter()
+        .map(|result| trust_level(&result.url))
+        .min()
+        .map(|level| level == TrustLevel::Other)
+        .unwrap_or(true);
     let mut out = format!(
         "Актуальные данные из интернета (запрос: «{query}», дата: {date}). \
-         Используй их, если они относятся к вопросу, и не выдумывай факты сверх них:\n"
+         Источники отсортированы по надёжности: официальная документация → научные работы → \
+         сообщества/код → блоги. Опирайся в первую очередь на документацию и научные работы; \
+         для сведений из блогов явно отмечай, что это неофициально. Не выдумывай факты сверх них.\n"
     );
+    if low_confidence {
+        out.push_str(
+            "Внимание: надёжных источников не найдено — ниже материалы низкой достоверности. \
+             Отвечай осторожно и явно отмечай неуверенность.\n",
+        );
+    }
     for (index, result) in results.iter().enumerate() {
+        let level = trust_level(&result.url);
         out.push_str(&format!(
-            "[{}] {} — {}\n{}\n",
+            "[{}] ({}) {} — {}\n{}\n",
             index + 1,
+            level.label(),
             result.title,
             result.url,
             result.snippet
@@ -1244,7 +1550,13 @@ pub async fn context_for(state: &AppState, user_text: &str) -> (Option<String>, 
     }
     let query = query_from_user(user_text);
     match search(state, &query, 5).await {
-        Ok(results) if !results.is_empty() => (Some(prompt_block(&query, &results)), results),
+        Ok(results) if !results.is_empty() => {
+            let ranked = rank_results(results, &quality(state));
+            if ranked.is_empty() {
+                return (None, vec![]);
+            }
+            (Some(prompt_block(&query, &ranked)), ranked)
+        }
         Ok(_) => {
             crate::logging::log_line("app.log", &format!("web search: пусто по запросу «{query}»"));
             (None, vec![])
@@ -1439,6 +1751,41 @@ mod tests {
         assert!(!should_search("спасибо!"));
         assert!(should_search("What is the latest OpenVINO GenAI release?"));
         assert!(should_search("Найди последнюю версию OpenVINO GenAI"));
+    }
+
+    #[test]
+    fn trust_levels_and_ranking() {
+        assert_eq!(trust_level("https://docs.openvino.ai/2026/x.html"), TrustLevel::Official);
+        assert_eq!(trust_level("https://arxiv.org/abs/2401.00001"), TrustLevel::Scientific);
+        assert_eq!(trust_level("https://stackoverflow.com/q/1"), TrustLevel::Community);
+        assert_eq!(trust_level("https://example.com/blog"), TrustLevel::Other);
+
+        let results = vec![
+            WebResult { title: "blog".into(), url: "https://medium.com/x".into(), snippet: String::new() },
+            WebResult { title: "docs".into(), url: "https://docs.openvino.ai/x".into(), snippet: String::new() },
+            WebResult { title: "so".into(), url: "https://stackoverflow.com/q/1".into(), snippet: String::new() },
+        ];
+        let strict = rank_results(results.clone(), "strict");
+        assert_eq!(strict[0].title, "docs");
+        assert_eq!(strict[1].title, "so");
+        assert!(!strict.iter().any(|result| result.title == "blog"));
+
+        let open = rank_results(results, "open");
+        assert_eq!(open[0].title, "blog");
+    }
+
+    #[test]
+    fn parses_arxiv_atom() {
+        let xml = r#"
+        <feed><entry>
+          <id>http://arxiv.org/abs/2401.00001v1</id>
+          <title>OpenVINO &amp; ONNX: performance</title>
+          <summary>We compare inference speeds.</summary>
+        </entry></feed>"#;
+        let results = parse_arxiv(xml, 3);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].title.contains("&"));
+        assert_eq!(results[0].url, "http://arxiv.org/abs/2401.00001v1");
     }
 
     #[test]

@@ -286,6 +286,7 @@ export interface AppendResult {
 export interface WebConfigView {
   enabled: boolean;
   provider: string;
+  quality: string;
   searxng_url: string;
   google_cx: string;
   has_tavily: boolean;

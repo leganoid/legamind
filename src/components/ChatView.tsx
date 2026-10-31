@@ -737,18 +737,6 @@ export default function ChatView(props: Props) {
           >
             🌐 {webEnabled() ? "онлайн" : "офлайн"}
           </button>
-          <button
-            class="btn small"
-            title={activeSession()?.workdir ?? "Выбрать рабочую папку проекта"}
-            onClick={chooseWorkdir}
-          >
-            📁 {workdirName()}
-          </button>
-          <Show when={activeSession()?.workdir}>
-            <button class="icon-btn" title="Открыть рабочую папку" onClick={openWorkdir}>
-              ↗
-            </button>
-          </Show>
           <span class="muted small">
             {activeSession() ? activeSession()!.title : "Сессия не выбрана"}
           </span>

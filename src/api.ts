@@ -105,6 +105,7 @@ export const api = {
   webConfigSet: (input: {
     enabled?: boolean;
     provider?: string;
+    quality?: string;
     searxng_url?: string;
     google_cx?: string;
     tavily_key?: string;

@@ -10,6 +10,7 @@ export default function SettingsView() {
 
   const [web, setWeb] = createSignal<WebConfigView | null>(null);
   const [provider, setProvider] = createSignal("auto");
+  const [quality, setQuality] = createSignal("strict");
   const [searxngUrl, setSearxngUrl] = createSignal("");
   const [tavilyKey, setTavilyKey] = createSignal("");
   const [braveKey, setBraveKey] = createSignal("");
@@ -42,6 +43,7 @@ export default function SettingsView() {
     const config = await api.webConfigGet();
     setWeb(config);
     setProvider(config.provider);
+    setQuality(config.quality);
     setSearxngUrl(config.searxng_url);
     setGoogleCx(config.google_cx);
   };
@@ -60,6 +62,7 @@ export default function SettingsView() {
       const config = await api.webConfigSet({
         enabled: patch.enabled,
         provider: provider(),
+        quality: quality(),
         searxng_url: searxngUrl(),
         google_cx: googleCx(),
         tavily_key: tavilyKey().trim() || undefined,
@@ -232,7 +235,9 @@ export default function SettingsView() {
         <p class="muted small">
           Если включено, перед ответом Legamind ищет запрос в интернете: Google Custom Search
           (ключ + CX), Tavily, Brave или свой SearxNG; без ключей — Wikipedia, Stack Exchange,
-          GitHub и Yahoo как резерв. Найденное вставляется в контекст, ссылки сохраняются под ответом.
+          GitHub, arXiv и Yahoo как резерв. Источники помечаются уровнем доверия
+          (документация → научные работы → сообщества → блоги), а в строгом режиме блоги
+          отбрасываются. Найденное вставляется в контекст, ссылки сохраняются под ответом.
         </p>
 
         <Show when={web()}>
@@ -251,10 +256,11 @@ export default function SettingsView() {
             <label>
               Провайдер поиска
               <select value={provider()} onChange={(e) => setProvider(e.currentTarget.value)}>
-                <option value="auto">Авто: ключ → SearxNG → Wikipedia → SO → GitHub → Yandex → Yahoo</option>
+                <option value="auto">Авто: качество → ключи → arXiv → Wikipedia → SO → GitHub</option>
                 <option value="wikipedia">Wikipedia (без ключа)</option>
                 <option value="stackexchange">Stack Exchange (без ключа)</option>
                 <option value="github">GitHub (без ключа)</option>
+                <option value="arxiv">arXiv — научные статьи (без ключа)</option>
                 <option value="searxng">SearxNG (свой инстанс)</option>
                 <option value="tavily">Tavily (API-ключ)</option>
                 <option value="brave">Brave Search (API-ключ)</option>
@@ -263,6 +269,16 @@ export default function SettingsView() {
                 <option value="yahoo">Yahoo (последний резерв)</option>
                 <option value="bing">Bing (best effort)</option>
                 <option value="ddg">DuckDuckGo (best effort)</option>
+              </select>
+            </label>
+            <label>
+              Качество источников
+              <select value={quality()} onChange={(e) => setQuality(e.currentTarget.value)}>
+                <option value="strict">
+                  Строгое: документация, научные работы, сообщества
+                </option>
+                <option value="balanced">Сбалансированное: всё, по убыванию доверия</option>
+                <option value="open">Открытое: как нашлось</option>
               </select>
             </label>
             <Show when={provider() === "searxng"}>
