@@ -45,14 +45,14 @@ pub struct IndexStats {
     pub chunks: usize,
 }
 
-/// Режет текст на перекрывающиеся чанки, по возможности по границе строки.
-pub fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
+/// Режет текст на перекрывающиеся чанки и запоминает начальную строку каждого.
+pub fn chunk_spans(text: &str, max_chars: usize, overlap: usize) -> Vec<(String, i64)> {
     let chars: Vec<char> = text.chars().collect();
     if chars.is_empty() {
         return Vec::new();
     }
     if chars.len() <= max_chars {
-        return vec![text.to_string()];
+        return vec![(text.to_string(), 1)];
     }
     let mut chunks = Vec::new();
     let mut start = 0usize;
@@ -70,7 +70,11 @@ pub fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
         if end <= start {
             end = (start + max_chars).min(chars.len());
         }
-        chunks.push(chars[start..end].iter().collect::<String>());
+        let line = 1 + chars[..start]
+            .iter()
+            .filter(|ch| **ch == '\n')
+            .count() as i64;
+        chunks.push((chars[start..end].iter().collect::<String>(), line));
         if end >= chars.len() {
             break;
         }
@@ -80,6 +84,13 @@ pub fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
         }
     }
     chunks
+}
+
+pub fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
+    chunk_spans(text, max_chars, overlap)
+        .into_iter()
+        .map(|(chunk, _)| chunk)
+        .collect()
 }
 
 fn is_text_file(path: &Path) -> bool {
@@ -143,12 +154,12 @@ pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
             .strip_prefix(root)
             .map(|path| path.to_string_lossy().to_string())
             .unwrap_or_else(|_| file.to_string_lossy().to_string());
-        let chunks = chunk_text(&text, CHUNK_CHARS, CHUNK_OVERLAP);
-        for (index, chunk) in chunks.iter().enumerate() {
+        let chunks = chunk_spans(&text, CHUNK_CHARS, CHUNK_OVERLAP);
+        for (index, (chunk, line)) in chunks.iter().enumerate() {
             if total_chunks >= MAX_CHUNKS {
                 break;
             }
-            db.rag_add_chunk(&root_key, &relative, index as i64, chunk)?;
+            db.rag_add_chunk(&root_key, &relative, index as i64, chunk, *line)?;
             total_chunks += 1;
         }
     }
@@ -175,11 +186,11 @@ pub fn reindex_file(db: &crate::db::Db, root: &Path, file: &Path) -> Result<()> 
     let Ok(text) = std::fs::read_to_string(file) else {
         return Ok(());
     };
-    for (index, chunk) in chunk_text(&text, CHUNK_CHARS, CHUNK_OVERLAP)
+    for (index, (chunk, line)) in chunk_spans(&text, CHUNK_CHARS, CHUNK_OVERLAP)
         .iter()
         .enumerate()
     {
-        db.rag_add_chunk(&root_key, &relative, index as i64, chunk)?;
+        db.rag_add_chunk(&root_key, &relative, index as i64, chunk, *line)?;
     }
     Ok(())
 }
@@ -260,7 +271,7 @@ pub fn context_block(db: &crate::db::Db, root: &Path, query: &str, limit: usize)
     );
     for hit in hits {
         let body: String = hit.content.chars().take(HIT_CHARS).collect();
-        out.push_str(&format!("\n[{}]\n{}\n", hit.path, body));
+        out.push_str(&format!("\n[{}:{}]\n{}\n", hit.path, hit.line, body));
         if out.chars().count() > BLOCK_CHARS {
             break;
         }
@@ -344,6 +355,10 @@ mod tests {
         assert!(chunks.len() > 1);
         assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 900));
         assert!(chunks.iter().all(|chunk| !chunk.trim().is_empty()));
+
+        let spans = chunk_spans(&text, 900, 150);
+        assert!(spans.len() > 1);
+        assert!(spans[1].1 > spans[0].1);
     }
 
     #[test]

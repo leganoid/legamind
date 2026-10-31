@@ -204,6 +204,7 @@ pub struct RagChunkRow {
 pub struct RagHitRow {
     pub path: String,
     pub content: String,
+    pub line: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -653,6 +654,16 @@ impl Db {
                 "#,
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (12)", [])?;
+        }
+
+        if current < 13 {
+            // Номера строк в RAG-фрагментах для цитат вида file:42.
+            conn.execute_batch(
+                "ALTER TABLE rag_chunks ADD COLUMN start_line INTEGER NOT NULL DEFAULT 1;
+                 DELETE FROM rag_fts;
+                 DELETE FROM rag_chunks;",
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (13)", [])?;
         }
         Ok(())
     }
@@ -1391,13 +1402,14 @@ impl Db {
         path: &str,
         chunk_index: i64,
         content: &str,
+        start_line: i64,
     ) -> Result<()> {
         let conn = self.conn();
         let id = new_id();
         conn.execute(
-            "INSERT INTO rag_chunks (id, root, path, chunk_index, content, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, root, path, chunk_index, content, now()],
+            "INSERT INTO rag_chunks (id, root, path, chunk_index, content, start_line, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, root, path, chunk_index, content, start_line, now()],
         )?;
         conn.execute(
             "INSERT INTO rag_fts (chunk_id, path, content) VALUES (?1, ?2, ?3)",
@@ -1413,7 +1425,7 @@ impl Db {
         }
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT c.path, c.content
+            "SELECT c.path, c.content, c.start_line
              FROM rag_fts f JOIN rag_chunks c ON c.id = f.chunk_id
              WHERE c.root = ?1 AND rag_fts MATCH ?2
              ORDER BY bm25(rag_fts)
@@ -1424,6 +1436,7 @@ impl Db {
                 Ok(RagHitRow {
                     path: row.get(0)?,
                     content: row.get(1)?,
+                    line: row.get(2)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1959,7 +1972,7 @@ pub fn fts_query(query: &str) -> String {
     let mut tokens: Vec<String> = query
         .split(|c: char| !(c.is_alphanumeric() || c == '_'))
         .filter(|t| t.chars().count() >= 3)
-        .map(|t| t.to_lowercase())
+        .map(|t| stem_token(&t.to_lowercase()))
         .collect();
     tokens.sort();
     tokens.dedup();
@@ -1969,6 +1982,34 @@ pub fn fts_query(query: &str) -> String {
         .map(|t| format!("\"{}\"*", t.replace('"', "")))
         .collect::<Vec<_>>()
         .join(" OR ")
+}
+
+/// Мягкая «морфология» для кириллицы: отрезаем частые окончания,
+/// чтобы «прошивки» и «прошивка» давали общий префикс.
+fn stem_token(token: &str) -> String {
+    let has_cyrillic = token
+        .chars()
+        .any(|c| ('\u{0400}'..='\u{04FF}').contains(&c));
+    if !has_cyrillic {
+        return token.to_string();
+    }
+    let endings = [
+        "ами", "ями", "ов", "ев", "ий", "ый", "ая", "ое", "ые", "ой", "ем", "ом", "ах", "ях",
+        "ия", "ью", "ка", "ки", "ок", "ек", "ик", "а", "я", "ы", "и", "у", "ю", "е", "о", "ь",
+    ];
+    let mut stem = token.to_string();
+    for ending in endings {
+        if let Some(prefix) = stem.strip_suffix(ending) {
+            if prefix.chars().count() >= 4 {
+                stem = prefix.to_string();
+                break;
+            }
+        }
+    }
+    if stem.chars().count() > 5 && stem.ends_with('к') {
+        stem.pop();
+    }
+    stem
 }
 
 #[cfg(test)]
@@ -2116,5 +2157,7 @@ mod tests {
         assert_eq!(fts_query("!!!"), "");
         assert!(fts_query("Формат дампа").contains("формат"));
         assert!(!fts_query("a b").contains("a\""));
+        assert!(fts_query("прошивки").contains("прошив"));
+        assert_eq!(fts_query("прошивки"), fts_query("прошивка"));
     }
 }
