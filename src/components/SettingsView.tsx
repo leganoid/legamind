@@ -402,8 +402,9 @@ export default function SettingsView() {
       <section class="card">
         <h2>Данные</h2>
         <p class="muted small">
-          Копия базы включает сессии, сообщения, память, навыки, уроки и настройки. Ключи
-          провайдеров хранятся отдельно (Windows Credential Manager) и в копию не попадают.
+          Копия базы включает сессии, сообщения, память, навыки, уроки и настройки. Файлы копий
+          шифруются средствами Windows (DPAPI) и привязаны к вашей учётной записи. Ключи
+          провайдеров хранятся отдельно (Credential Manager) и в копию не попадают.
         </p>
         <div class="row">
           <button class="btn" onClick={() => void backupDb()} disabled={dbBusy()}>

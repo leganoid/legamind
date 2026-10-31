@@ -109,7 +109,7 @@ pub fn migrate_legacy_keys(db: &crate::db::Db) {
 }
 
 #[cfg(windows)]
-mod dpapi {
+pub(crate) mod dpapi {
     use anyhow::{bail, Result};
     use std::ptr;
     use winapi::shared::minwindef::DWORD;
@@ -188,7 +188,7 @@ mod dpapi {
 }
 
 #[cfg(not(windows))]
-mod dpapi {
+pub(crate) mod dpapi {
     use anyhow::{bail, Result};
     pub fn protect(_: &[u8]) -> Result<Vec<u8>> {
         bail!("DPAPI доступен только на Windows")

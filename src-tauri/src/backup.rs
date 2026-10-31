@@ -10,9 +10,53 @@ use crate::AppState;
 
 const AUTO_KEEP: usize = 5;
 const AUTO_INTERVAL_HOURS: i64 = 24;
+const ENC_MAGIC: &[u8] = b"LMENC1\n";
 
 fn timestamp() -> String {
     chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
+}
+
+/// Зашифрован ли файл копии (DPAPI).
+pub fn is_encrypted(path: &Path) -> Result<bool> {
+    let bytes = std::fs::read(path)?;
+    Ok(bytes.starts_with(ENC_MAGIC))
+}
+
+/// Делает копию базы и шифрует её через DPAPI; открытый файл удаляется.
+pub fn write_encrypted_backup(db: &crate::db::Db, dest: &Path) -> Result<()> {
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = dest.with_extension("tmp-plain");
+    let result = (|| -> Result<()> {
+        db.backup_to(&tmp)?;
+        let plain = std::fs::read(&tmp)?;
+        let blob = crate::secrets::dpapi::protect(&plain)?;
+        let mut data = Vec::with_capacity(ENC_MAGIC.len() + blob.len());
+        data.extend_from_slice(ENC_MAGIC);
+        data.extend_from_slice(&blob);
+        std::fs::write(dest, data)?;
+        Ok(())
+    })();
+    let _ = std::fs::remove_file(&tmp);
+    result
+}
+
+/// Восстанавливает копию: зашифрованную расшифровывает во временный файл, обычную использует как есть.
+pub fn restore_backup(db: &crate::db::Db, source: &Path) -> Result<()> {
+    if !source.is_file() {
+        anyhow::bail!("Файл копии не найден");
+    }
+    if !is_encrypted(source)? {
+        return db.restore_from(source);
+    }
+    let data = std::fs::read(source)?;
+    let plain = crate::secrets::dpapi::unprotect(&data[ENC_MAGIC.len()..])?;
+    let tmp = source.with_extension("restore-tmp.db");
+    std::fs::write(&tmp, &plain)?;
+    let result = db.restore_from(&tmp);
+    let _ = std::fs::remove_file(&tmp);
+    result
 }
 
 fn backups_dir(data_dir: &Path) -> PathBuf {
@@ -57,7 +101,7 @@ pub fn auto_backup(db: &crate::db::Db, data_dir: &Path) -> Result<Option<String>
     let dir = backups_dir(data_dir);
     std::fs::create_dir_all(&dir)?;
     let dest = dir.join(format!("auto-{}.db", timestamp()));
-    db.backup_to(&dest)?;
+    write_encrypted_backup(db, &dest)?;
     db.setting_set("last_auto_backup", &now.to_rfc3339())?;
     prune_auto(&dir, AUTO_KEEP);
     let _ = crate::logging::log_line(
@@ -111,10 +155,7 @@ pub async fn db_backup(
             file.ok_or_else(|| "Сохранение отменено".to_string())?
         }
     };
-    state
-        .db
-        .backup_to(&dest)
-        .map_err(|e| e.to_string())?;
+    write_encrypted_backup(&state.db, &dest).map_err(|e| e.to_string())?;
     state
         .db
         .setting_set("last_auto_backup", &chrono::Utc::now().to_rfc3339())
@@ -147,13 +188,9 @@ pub async fn db_restore(
         .data_dir
         .join("backups")
         .join(format!("before-restore-{}.db", timestamp()));
-    state
-        .db
-        .backup_to(&safety)
+    write_encrypted_backup(&state.db, &safety)
         .map_err(|e| format!("Не удалось сохранить текущую базу: {e}"))?;
-    state
-        .db
-        .restore_from(&source)
+    restore_backup(&state.db, &source)
         .map_err(|e| format!("Не удалось восстановить: {e}"))?;
     let _ = crate::logging::log_line(
         "app.log",
@@ -179,6 +216,32 @@ pub async fn db_restore(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encrypted_backup_roundtrip() {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join(format!("backup-enc-{}", crate::db::new_id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let db = crate::db::Db::open_memory().unwrap();
+        let first = db.session_create("Секретная", "local/qwen-1.5b").unwrap();
+        let dest = base.join("enc.db");
+        write_encrypted_backup(&db, &dest).expect("encrypted backup");
+
+        let bytes = std::fs::read(&dest).unwrap();
+        assert!(bytes.starts_with(b"LMENC1\n"));
+        assert!(!bytes.starts_with(b"SQLite format 3\0"));
+
+        db.session_create("Лишняя", "local/qwen-1.5b").unwrap();
+        assert_eq!(db.sessions_list().unwrap().len(), 2);
+        restore_backup(&db, &dest).expect("restore encrypted");
+        let sessions = db.sessions_list().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, first.id);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn auto_backup_respects_interval_and_prunes() {

@@ -119,12 +119,14 @@ scripts/             mock_openai.py, smoke.ps1, env.ps1, finetune_qlora.py, expo
   перемещение подтверждаются модалкой с diff, опасные команды блокируются, все действия — в
   `audit.log`; перед изменением файл копируется в `.legamind/backups`, есть «↩ Отменить».
 
+
 ## Данные
 
 * БД: `%APPDATA%\com.legamind.app\legamind.db`
 * Логи: `%APPDATA%\com.legamind.app\logs\`
+* Автокопии и ручные копии: `%APPDATA%\com.legamind.app\backups\` — **шифруются DPAPI**
+  (открываются только под вашей учётной записью Windows)
 * Экспорт дебатов: `%APPDATA%\com.legamind.app\exports\debate-<id>.md`
-
 ## Интернет для локальных моделей
 
 Локальные модели получают свежие данные из интернета: перед ответом Legamind ищет запрос
