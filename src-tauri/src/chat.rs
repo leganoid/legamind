@@ -264,8 +264,21 @@ pub(crate) fn build_messages(
     messages
 }
 
-fn spawn_run(app: &AppHandle, state: &AppState, session_id: String, model_id: String) -> String {
+fn spawn_run(
+    app: &AppHandle,
+    state: &AppState,
+    session_id: String,
+    model_id: String,
+    attachment: Option<String>,
+) -> String {
     let request_id = new_id();
+    if let Some(block) = attachment {
+        state
+            .chat_attachments
+            .lock()
+            .unwrap()
+            .insert(request_id.clone(), block);
+    }
     let cancel = Arc::new(AtomicBool::new(false));
     state
         .cancel
@@ -281,6 +294,46 @@ fn spawn_run(app: &AppHandle, state: &AppState, session_id: String, model_id: St
     request_id
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AttachmentInput {
+    pub name: String,
+    pub content: String,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+fn build_attachment_block(items: Option<Vec<AttachmentInput>>) -> Option<String> {
+    let items = items?;
+    if items.is_empty() {
+        return None;
+    }
+    let mut out = String::from(
+        "Пользователь приложил файлы (используй их как контекст ответа):\n",
+    );
+    let mut total = 0usize;
+    for item in items.into_iter().take(2) {
+        if item.content.trim().is_empty() {
+            continue;
+        }
+        let content: String = item.content.chars().take(100_000).collect();
+        total += content.len();
+        if total > 220_000 {
+            break;
+        }
+        out.push_str(&format!(
+            "\n--- {} {} ---\n````text\n{}\n````\n",
+            item.name,
+            item.path.unwrap_or_default(),
+            content
+        ));
+    }
+    if total == 0 {
+        None
+    } else {
+        Some(out)
+    }
+}
+
 #[tauri::command]
 pub async fn chat_send(
     app: AppHandle,
@@ -288,6 +341,7 @@ pub async fn chat_send(
     session_id: String,
     content: String,
     model_id: String,
+    attachments: Option<Vec<AttachmentInput>>,
 ) -> Result<ChatStart, String> {
     let content = content.trim().to_string();
     if content.is_empty() {
@@ -315,7 +369,13 @@ pub async fn chat_send(
         .message_add(&session_id, "user", &content, Some(&model_id), None)
         .map_err(|e| e.to_string())?;
 
-    let request_id = spawn_run(&app, &state, session_id, model_id);
+    let request_id = spawn_run(
+        &app,
+        &state,
+        session_id,
+        model_id,
+        build_attachment_block(attachments),
+    );
     Ok(ChatStart { request_id, message })
 }
 
@@ -352,7 +412,7 @@ pub async fn chat_regenerate(
         .into_iter()
         .collect();
 
-    let request_id = spawn_run(&app, &state, session_id, model_id);
+    let request_id = spawn_run(&app, &state, session_id, model_id, None);
     Ok(RegenStart { request_id, removed_ids })
 }
 
@@ -397,7 +457,7 @@ pub async fn chat_edit_and_resend(
         .message_add(&session_id, "user", &content, Some(&model_id), None)
         .map_err(|e| e.to_string())?;
 
-    let request_id = spawn_run(&app, &state, session_id, model_id);
+    let request_id = spawn_run(&app, &state, session_id, model_id, None);
     Ok(EditStart { request_id, removed_ids, message })
 }
 
@@ -494,7 +554,12 @@ async fn run_chat(
             }
         }
         let reserve = params.max_tokens.max(MIN_RESERVE);
-        let (messages, usage) = build_budgeted_messages(
+        let attachment_block = state
+            .chat_attachments
+            .lock()
+            .unwrap()
+            .remove(&request_id);
+        let (mut messages, usage) = build_budgeted_messages(
             &state,
             &model_id,
             &history,
@@ -506,6 +571,13 @@ async fn run_chat(
             reserve,
         )
         .await?;
+
+        if let Some(block) = attachment_block {
+            if let Some(last) = messages.iter_mut().rev().find(|m| m.role == "user") {
+                last.content.push_str("\n\n");
+                last.content.push_str(&block);
+            }
+        }
 
         // Логируем собранный промпт без ключей (требование приёмки M4).
         let prompt_dump = messages

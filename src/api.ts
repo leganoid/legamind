@@ -26,6 +26,7 @@ import type {
   MessageHitRow,
   MessageToolRow,
   ModelInfo,
+  PickedAttachment,
   ProviderInput,
   ProviderModelRow,
   ProviderView,
@@ -59,8 +60,12 @@ export const api = {
   modelsUnload: (id: string) => invoke<void>("models_unload", { id }),
   engineRestart: () => invoke<number>("engine_restart"),
 
-  chatSend: (sessionId: string, content: string, modelId: string) =>
-    invoke<ChatStart>("chat_send", { sessionId, content, modelId }),
+  chatSend: (
+    sessionId: string,
+    content: string,
+    modelId: string,
+    attachments?: { name: string; path: string; content: string }[],
+  ) => invoke<ChatStart>("chat_send", { sessionId, content, modelId, attachments }),
   chatStop: (requestId: string) => invoke<void>("chat_stop", { requestId }),
   chatRegenerate: (sessionId: string, modelId: string) =>
     invoke<RegenStart>("chat_regenerate", { sessionId, modelId }),
@@ -149,6 +154,7 @@ export const api = {
   logsTail: (name: string, lines = 400) =>
     invoke<LogTail>("logs_tail", { name, lines }),
   engineStats: () => invoke<EngineStats>("engine_stats"),
+  pickTextAttachment: () => invoke<PickedAttachment | null>("pick_text_attachment"),
   watchWorkdir: (sessionId: string) => invoke<string>("watch_workdir", { sessionId }),
   unwatchWorkdir: () => invoke<void>("unwatch_workdir"),
 

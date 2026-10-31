@@ -412,6 +412,13 @@ export interface EngineStats {
   models: number;
 }
 
+export interface PickedAttachment {
+  name: string;
+  path: string;
+  content: string;
+  size: number;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

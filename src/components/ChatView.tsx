@@ -16,6 +16,7 @@ import type {
   ToolRunRow,
   RagIndexedPayload,
   ToolActivity,
+  PickedAttachment,
 } from "../types";
 import Sidebar from "./Sidebar";
 import ChatMessage from "./Message";
@@ -55,6 +56,7 @@ export default function ChatView(props: Props) {
   const [toolsLive, setToolsLive] = createSignal<ToolActivity[]>([]);
   const [toolsByMessage, setToolsByMessage] = createSignal<Record<string, ToolActivity[]>>({});
   const [approvalRemember, setApprovalRemember] = createSignal(false);
+  const [attachments, setAttachments] = createSignal<PickedAttachment[]>([]);
   const autoIndexed = new Set<string>();
   let projectMenu: HTMLDetailsElement | undefined;
   const [context, setContext] = createSignal<ContextUsage | null>(null);
@@ -481,8 +483,7 @@ export default function ChatView(props: Props) {
     if (trimmed.startsWith("/")) {
       await runCommand(trimmed);
       return;
-    }
-    setError(null);
+    }    setError(null);
     setNotice(null);
     let session = activeSession();
     if (!session) {
@@ -498,7 +499,17 @@ export default function ChatView(props: Props) {
     }
     const chosen = modelId() || defaultModel();
     try {
-      const start = await api.chatSend(session.id, text, chosen);
+      const start = await api.chatSend(
+        session.id,
+        text,
+        chosen,
+        attachments().map((file) => ({
+          name: file.name,
+          path: file.path,
+          content: file.content,
+        })),
+      );
+      setAttachments([]);
       setMessages((prev) => [...prev, start.message]);
       beginStream(start.request_id);
       if (session.title === "Новая сессия") {
@@ -506,6 +517,19 @@ export default function ChatView(props: Props) {
         await api.sessionsRename(session.id, title);
         await refreshSessions();
       }
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const attachFile = async () => {
+    if (attachments().length >= 2) {
+      setNotice("Можно приложить не больше двух файлов");
+      return;
+    }
+    try {
+      const file = await api.pickTextAttachment();
+      if (file) setAttachments((prev) => [...prev, file]);
     } catch (err) {
       setError(String(err));
     }
@@ -1144,7 +1168,17 @@ export default function ChatView(props: Props) {
         <Show
           when={editingId() !== null}
           fallback={
-            <Composer busy={busy()} disabled={commandBusy()} onSend={send} onStop={stop} />
+            <Composer
+              busy={busy()}
+              disabled={commandBusy()}
+              onSend={send}
+              onStop={stop}
+              attachments={attachments()}
+              onAttach={attachFile}
+              onRemoveAttachment={(index) =>
+                setAttachments((prev) => prev.filter((_, position) => position !== index))
+              }
+            />
           }
         >
           <div class="composer edit-composer">

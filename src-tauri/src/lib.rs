@@ -19,6 +19,7 @@ pub mod backup;
 pub mod watcher;
 pub mod local_models;
 pub mod logs;
+pub mod attachments;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -43,6 +44,8 @@ pub struct AppState {
     pub approvals: Mutex<HashMap<String, crate::tools::PendingApproval>>,
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
     pub watch_root: Mutex<Option<PathBuf>>,
+    /// Текст вложений текущего запроса (request_id → блок для промпта).
+    pub chat_attachments: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -313,6 +316,7 @@ pub fn run() {
                 approvals: Mutex::new(HashMap::new()),
                 watcher: Mutex::new(None),
                 watch_root: Mutex::new(None),
+                chat_attachments: Mutex::new(HashMap::new()),
             });
 
             // Автокопия: проверка раз в час, фактически — не чаще раза в 24 часа.
@@ -374,6 +378,7 @@ pub fn run() {
             local_models::local_model_add,
             local_models::local_model_remove,
             logs::logs_tail,
+            attachments::pick_text_attachment,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

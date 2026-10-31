@@ -82,6 +82,7 @@ fn make_state(provider_id: &str, base_url: &str) -> AppState {
         approvals: Mutex::new(HashMap::new()),
         watcher: Mutex::new(None),
         watch_root: Mutex::new(None),
+        chat_attachments: Mutex::new(HashMap::new()),
     }
 }
 

@@ -1,10 +1,14 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
+import type { PickedAttachment } from "../types";
 
 interface Props {
   busy: boolean;
   disabled: boolean;
   onSend: (text: string) => void;
   onStop: () => void;
+  attachments: PickedAttachment[];
+  onAttach: () => void;
+  onRemoveAttachment: (index: number) => void;
 }
 
 interface CommandHint {
@@ -108,6 +112,25 @@ export default function Composer(props: Props) {
           </For>
         </div>
       </Show>
+      <Show when={props.attachments.length > 0}>
+        <div class="attachment-chips">
+          <For each={props.attachments}>
+            {(file, index) => (
+              <span class="attachment-chip">
+                📎 {file.name}
+                <span class="muted small"> · {(file.size / 1024).toFixed(1)} КБ</span>
+                <button
+                  class="icon-btn"
+                  title="Убрать вложение"
+                  onClick={() => props.onRemoveAttachment(index())}
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+          </For>
+        </div>
+      </Show>
       <textarea
         ref={inputRef}
         value={text()}
@@ -123,6 +146,14 @@ export default function Composer(props: Props) {
         onKeyDown={onKeyDown}
       />
       <div class="composer-actions">
+        <button
+          class="btn ghost small"
+          title="Приложить текстовый или кодовый файл"
+          onClick={() => props.onAttach()}
+          disabled={props.busy || props.disabled}
+        >
+          📎 Файл
+        </button>
         {props.busy ? (
           <button class="btn danger" onClick={() => props.onStop()}>
             Стоп
