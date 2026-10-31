@@ -28,6 +28,7 @@ fn make_state(name: &str) -> AppState {
         watcher: Mutex::new(None),
         watch_root: Mutex::new(None),
         chat_attachments: Mutex::new(HashMap::new()),
+        chat_images: Mutex::new(HashMap::new()),
     }
 }
 

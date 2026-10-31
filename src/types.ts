@@ -417,6 +417,7 @@ export interface PickedAttachment {
   path: string;
   kind: string;
   content: string;
+  data_url: string | null;
   size: number;
 }
 

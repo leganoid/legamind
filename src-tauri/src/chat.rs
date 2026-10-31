@@ -270,6 +270,7 @@ fn spawn_run(
     session_id: String,
     model_id: String,
     attachment: Option<String>,
+    images: Vec<String>,
 ) -> String {
     let request_id = new_id();
     if let Some(block) = attachment {
@@ -278,6 +279,13 @@ fn spawn_run(
             .lock()
             .unwrap()
             .insert(request_id.clone(), block);
+    }
+    if !images.is_empty() {
+        state
+            .chat_images
+            .lock()
+            .unwrap()
+            .insert(request_id.clone(), images);
     }
     let cancel = Arc::new(AtomicBool::new(false));
     state
@@ -300,6 +308,20 @@ pub struct AttachmentInput {
     pub content: String,
     #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
+    pub data_url: Option<String>,
+}
+
+fn attachment_images(items: Option<&Vec<AttachmentInput>>) -> Vec<String> {
+    items
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.data_url.clone())
+                .take(2)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn build_attachment_block(items: Option<Vec<AttachmentInput>>) -> Option<String> {
@@ -364,6 +386,27 @@ pub async fn chat_send(
         .db
         .session_set_model(&session_id, &model_id)
         .map_err(|e| e.to_string())?;
+
+    let images = attachment_images(attachments.as_ref());
+    if !images.is_empty() {
+        let (provider_id, short) = model_id
+            .split_once('/')
+            .ok_or_else(|| "Некорректный идентификатор модели".to_string())?;
+        if provider_id == "local" {
+            return Err("Локальные OpenVINO-модели не поддерживают изображения".into());
+        }
+        if let Some(provider) = state.db.provider_get(provider_id).map_err(|e| e.to_string())? {
+            if provider.kind == "anthropic" {
+                return Err("Vision для Anthropic пока не поддержан — используйте OpenAI-совместимую vision-модель".into());
+            }
+        }
+        if !crate::models::supports_vision(short) {
+            return Err(format!(
+                "Модель «{short}» не заявлена как vision. Выберите vision-модель (gpt-4o, qwen-vl, llava и т.п.)."
+            ));
+        }
+    }
+
     let message = state
         .db
         .message_add(&session_id, "user", &content, Some(&model_id), None)
@@ -375,6 +418,7 @@ pub async fn chat_send(
         session_id,
         model_id,
         build_attachment_block(attachments),
+        images,
     );
     Ok(ChatStart { request_id, message })
 }
@@ -412,7 +456,7 @@ pub async fn chat_regenerate(
         .into_iter()
         .collect();
 
-    let request_id = spawn_run(&app, &state, session_id, model_id, None);
+    let request_id = spawn_run(&app, &state, session_id, model_id, None, Vec::new());
     Ok(RegenStart { request_id, removed_ids })
 }
 
@@ -457,7 +501,7 @@ pub async fn chat_edit_and_resend(
         .message_add(&session_id, "user", &content, Some(&model_id), None)
         .map_err(|e| e.to_string())?;
 
-    let request_id = spawn_run(&app, &state, session_id, model_id, None);
+    let request_id = spawn_run(&app, &state, session_id, model_id, None, Vec::new());
     Ok(EditStart { request_id, removed_ids, message })
 }
 
@@ -559,6 +603,12 @@ async fn run_chat(
             .lock()
             .unwrap()
             .remove(&request_id);
+        let attachment_images = state
+            .chat_images
+            .lock()
+            .unwrap()
+            .remove(&request_id)
+            .unwrap_or_default();
         let (mut messages, usage) = build_budgeted_messages(
             &state,
             &model_id,
@@ -576,6 +626,11 @@ async fn run_chat(
             if let Some(last) = messages.iter_mut().rev().find(|m| m.role == "user") {
                 last.content.push_str("\n\n");
                 last.content.push_str(&block);
+            }
+        }
+        if !attachment_images.is_empty() {
+            if let Some(last) = messages.iter_mut().rev().find(|m| m.role == "user") {
+                last.images = attachment_images;
             }
         }
 

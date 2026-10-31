@@ -47,6 +47,8 @@ pub struct AppState {
     pub watch_root: Mutex<Option<PathBuf>>,
     /// Текст вложений текущего запроса (request_id → блок для промпта).
     pub chat_attachments: Mutex<HashMap<String, String>>,
+    /// Изображения текущего запроса (request_id → data URL).
+    pub chat_images: Mutex<HashMap<String, Vec<String>>>,
 }
 
 impl AppState {
@@ -318,6 +320,7 @@ pub fn run() {
                 watcher: Mutex::new(None),
                 watch_root: Mutex::new(None),
                 chat_attachments: Mutex::new(HashMap::new()),
+                chat_images: Mutex::new(HashMap::new()),
             });
 
             // Автокопия: проверка раз в час, фактически — не чаще раза в 24 часа.

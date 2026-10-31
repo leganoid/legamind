@@ -64,7 +64,12 @@ export const api = {
     sessionId: string,
     content: string,
     modelId: string,
-    attachments?: { name: string; path: string; content: string }[],
+    attachments?: {
+      name: string;
+      path: string;
+      content: string;
+      data_url?: string | null;
+    }[],
   ) => invoke<ChatStart>("chat_send", { sessionId, content, modelId, attachments }),
   chatStop: (requestId: string) => invoke<void>("chat_stop", { requestId }),
   chatRegenerate: (sessionId: string, modelId: string) =>

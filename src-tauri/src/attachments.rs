@@ -12,10 +12,25 @@ const MAX_TEXT_CHARS: usize = 100_000;
 pub struct PickedAttachment {
     pub name: String,
     pub path: String,
-    /// text | pdf | image | binary
+    /// text | pdf | image
     pub kind: String,
     pub content: String,
+    /// data:image/...;base64 для изображения (для vision-моделей).
+    pub data_url: Option<String>,
     pub size: u64,
+}
+
+fn image_data_url(format: &str, bytes: &[u8]) -> Option<String> {
+    use base64::Engine;
+    let mime = match format {
+        "PNG" => "image/png",
+        "JPEG" => "image/jpeg",
+        "GIF" => "image/gif",
+        "WebP" => "image/webp",
+        _ => return None,
+    };
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:{mime};base64,{encoded}"))
 }
 
 fn image_info(bytes: &[u8]) -> Option<(&'static str, u32, u32)> {
@@ -129,6 +144,7 @@ pub async fn pick_text_attachment() -> Result<Option<PickedAttachment>, String> 
         .map(|value| value.to_string_lossy().to_string())
         .unwrap_or_else(|| "file".to_string());
     let is_pdf = bytes.starts_with(b"%PDF");
+    let mut data_url = None;
     let (kind, content) = if is_pdf {
         match extract_pdf(&bytes) {
             Some(text) => ("pdf".to_string(), format!("Текст PDF `{name}`:\n{text}")),
@@ -145,7 +161,8 @@ pub async fn pick_text_attachment() -> Result<Option<PickedAttachment>, String> 
             .take(MAX_TEXT_CHARS)
             .collect();
         ("text".to_string(), text)
-    } else if image_info(&bytes).is_some() {
+    } else if let Some((format, _, _)) = image_info(&bytes) {
+        data_url = image_data_url(format, &bytes);
         ("image".to_string(), image_description(&name, &bytes))
     } else {
         return Err(format!(
@@ -159,6 +176,7 @@ pub async fn pick_text_attachment() -> Result<Option<PickedAttachment>, String> 
         path: path.to_string_lossy().to_string(),
         kind,
         content,
+        data_url,
         size: metadata.len(),
     }))
 }

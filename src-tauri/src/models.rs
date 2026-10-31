@@ -20,12 +20,68 @@ pub const LOCAL_PREFIX: &str = "local";
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 impl ChatMessage {
     pub fn new(role: &str, content: impl Into<String>) -> Self {
-        Self { role: role.to_string(), content: content.into() }
+        Self {
+            role: role.to_string(),
+            content: content.into(),
+            images: Vec::new(),
+        }
     }
+}
+
+/// Модель заявлена как vision (эвристика по идентификатору).
+pub fn supports_vision(model: &str) -> bool {
+    let model = model.to_lowercase();
+    [
+        "gpt-4o",
+        "gpt-4.1",
+        "gpt-5",
+        "o3",
+        "o4",
+        "claude-3",
+        "claude-4",
+        "gemini",
+        "qwen-vl",
+        "qwen2-vl",
+        "qwen2.5-vl",
+        "qwen3-vl",
+        "llava",
+        "pixtral",
+        "internvl",
+        "deepseek-vl",
+        "glm-4v",
+        "minicpm-v",
+        "phi-3-vision",
+        "phi-4-multimodal",
+    ]
+    .iter()
+    .any(|marker| model.contains(marker))
+}
+
+/// Сообщения в формате OpenAI: для изображений content становится массивом частей.
+pub fn cloud_messages_json(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
+    messages
+        .iter()
+        .map(|message| {
+            if message.images.is_empty() {
+                json!({"role": message.role, "content": message.content})
+            } else {
+                let mut parts = vec![json!({"type": "text", "text": message.content})];
+                for url in &message.images {
+                    parts.push(json!({
+                        "type": "image_url",
+                        "image_url": {"url": url}
+                    }));
+                }
+                json!({"role": message.role, "content": parts})
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -408,7 +464,7 @@ impl Router<'_> {
     ) -> std::result::Result<ChatOutcome, CloudError> {
         let mut body = json!({
             "model": model,
-            "messages": messages,
+            "messages": cloud_messages_json(messages),
             "stream": true,
             "max_tokens": params.max_tokens,
             "temperature": params.temperature,
@@ -725,6 +781,31 @@ pub fn mask_key(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vision_models_are_detected() {
+        assert!(supports_vision("gpt-4o-mini"));
+        assert!(supports_vision("qwen2.5-vl-7b"));
+        assert!(supports_vision("llava-1.6"));
+        assert!(!supports_vision("deepseek-flash"));
+        assert!(!supports_vision("qwen3-14b"));
+    }
+
+    #[test]
+    fn image_messages_become_content_parts() {
+        let mut message = ChatMessage::new("user", "что на картинке?");
+        message.images = vec!["data:image/png;base64,AAAA".into()];
+        let value = cloud_messages_json(&[message]);
+        assert_eq!(value[0]["content"][0]["type"], "text");
+        assert_eq!(value[0]["content"][1]["type"], "image_url");
+        assert_eq!(
+            value[0]["content"][1]["image_url"]["url"],
+            "data:image/png;base64,AAAA"
+        );
+
+        let plain = cloud_messages_json(&[ChatMessage::new("user", "привет")]);
+        assert!(plain[0]["content"].is_string());
+    }
 
     #[test]
     fn model_id_split() {

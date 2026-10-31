@@ -507,6 +507,7 @@ export default function ChatView(props: Props) {
           name: file.name,
           path: file.path,
           content: file.content,
+          data_url: file.data_url,
         })),
       );
       setAttachments([]);
