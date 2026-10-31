@@ -124,6 +124,8 @@ export const api = {
   ragStatus: (sessionId: string) => invoke<RagStats>("rag_status", { sessionId }),
   ragGetEnabled: () => invoke<boolean>("rag_get_enabled"),
   ragSetEnabled: (enabled: boolean) => invoke<boolean>("rag_set_enabled", { enabled }),
+  dbBackup: () => invoke<string>("db_backup"),
+  dbRestore: () => invoke<string>("db_restore"),
 
   pickFolder: () => invoke<string | null>("pick_folder"),
   sessionSetWorkdir: (sessionId: string, path: string | null, create = true) =>

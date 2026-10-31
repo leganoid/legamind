@@ -15,6 +15,7 @@ pub mod skills;
 pub mod tools;
 pub mod web;
 pub mod workspace;
+pub mod backup;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -344,6 +345,8 @@ pub fn run() {
             rag::rag_status,
             rag::rag_get_enabled,
             rag::rag_set_enabled,
+            backup::db_backup,
+            backup::db_restore,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

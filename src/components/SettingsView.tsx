@@ -18,6 +18,8 @@ export default function SettingsView() {
   const [webTest, setWebTest] = createSignal<WebTestResult | null>(null);
   const [testing, setTesting] = createSignal(false);
   const [resetOpen, setResetOpen] = createSignal(false);
+  const [restoreOpen, setRestoreOpen] = createSignal(false);
+  const [dbBusy, setDbBusy] = createSignal(false);
   const [health, setHealth] = createSignal<
     { engine: string; search: string; ok: boolean } | null
   >(null);
@@ -128,6 +130,34 @@ export default function SettingsView() {
       setNotice("Интернет-настройки сброшены: провайдер «Авто», поля очищены");
     } catch (err) {
       setError(String(err));
+    }
+  };
+
+  const backupDb = async () => {
+    setDbBusy(true);
+    setError(null);
+    try {
+      const path = await api.dbBackup();
+      setNotice(`Копия базы сохранена: ${path}`);
+    } catch (err) {
+      const message = String(err);
+      if (!message.toLowerCase().includes("отмен")) setError(message);
+    } finally {
+      setDbBusy(false);
+    }
+  };
+
+  const restoreDb = async () => {
+    setRestoreOpen(false);
+    setDbBusy(true);
+    setError(null);
+    try {
+      const message = await api.dbRestore();
+      setNotice(`${message}. Приложение перезапускается…`);
+    } catch (err) {
+      const message = String(err);
+      if (!message.toLowerCase().includes("отмен")) setError(message);
+      setDbBusy(false);
     }
   };
 
@@ -357,6 +387,25 @@ export default function SettingsView() {
           </div>
         </Show>
       </section>
+
+      <section class="card">
+        <h2>Данные</h2>
+        <p class="muted small">
+          Копия базы включает сессии, сообщения, память, навыки, уроки и настройки. Ключи
+          провайдеров хранятся отдельно (Windows Credential Manager) и в копию не попадают.
+        </p>
+        <div class="row">
+          <button class="btn" onClick={() => void backupDb()} disabled={dbBusy()}>
+            💾 Сохранить копию базы…
+          </button>
+          <button class="btn ghost" onClick={() => setRestoreOpen(true)} disabled={dbBusy()}>
+            ♻ Восстановить из копии…
+          </button>
+        </div>
+        <Show when={dbBusy()}>
+          <p class="muted small">Работаю с базой…</p>
+        </Show>
+      </section>
       </Show>
 
       <Show when={tab() === "privacy"}>
@@ -377,6 +426,16 @@ export default function SettingsView() {
         confirmLabel="Сбросить"
         onConfirm={() => void resetWeb()}
         onCancel={() => setResetOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={restoreOpen()}
+        title="Восстановить базу из копии?"
+        message="Текущие сессии, память и настройки будут заменены содержимым копии. Перед восстановлением автоматически сохраняется резервная копия текущей базы, после — приложение перезапустится."
+        confirmLabel="Восстановить"
+        danger
+        onConfirm={() => void restoreDb()}
+        onCancel={() => setRestoreOpen(false)}
       />
     </div>
   );

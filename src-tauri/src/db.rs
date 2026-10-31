@@ -257,6 +257,48 @@ impl Db {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Согласованная копия базы (SQLite backup API, учитывает WAL).
+    pub fn backup_to(&self, dest: &Path) -> Result<()> {
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = self.conn();
+        let mut target = Connection::open(dest)?;
+        let backup = rusqlite::backup::Backup::new(&conn, &mut target)?;
+        backup.run_to_completion(128, std::time::Duration::from_millis(2), None)?;
+        Ok(())
+    }
+
+    /// Восстанавливает базу из копии в открытое соединение (без подмены файла).
+    pub fn restore_from(&self, source: &Path) -> Result<()> {
+        if !source.is_file() {
+            anyhow::bail!("Файл копии не найден");
+        }
+        let src = Connection::open_with_flags(
+            source,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        let tables: i64 = src.query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name IN ('sessions', 'messages', 'schema_version')",
+            [],
+            |row| row.get(0),
+        )?;
+        if tables < 2 {
+            anyhow::bail!("Это не похоже на базу Legamind");
+        }
+
+        let mut conn = self.conn();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        {
+            let backup = rusqlite::backup::Backup::new(&src, &mut conn)?;
+            backup.run_to_completion(128, std::time::Duration::from_millis(2), None)?;
+        }
+        drop(conn);
+        self.migrate()?;
+        Ok(())
+    }
+
     pub fn migrate(&self) -> Result<()> {
         let conn = self.conn();
         conn.execute_batch("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);")?;
@@ -1857,6 +1899,34 @@ mod tests {
         assert_eq!(db.session_get(&s.id).unwrap().unwrap().title, "Тема");
         db.session_delete(&s.id).unwrap();
         assert!(db.messages_list(&s.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn backup_and_restore_database() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join(format!("db-backup-{}", new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("main.db");
+        let db = Db::open(&path).unwrap();
+        let first = db.session_create("Первая", "local/qwen-1.5b").unwrap();
+        let backup = dir.join("copy.db");
+        db.backup_to(&backup).unwrap();
+        assert!(backup.is_file());
+
+        let second = db.session_create("Вторая", "local/qwen-1.5b").unwrap();
+        assert_eq!(db.sessions_list().unwrap().len(), 2);
+
+        db.restore_from(&backup).unwrap();
+        let sessions = db.sessions_list().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, first.id);
+        assert!(db.session_get(&second.id).unwrap().is_none());
+
+        assert!(Db::open(&path).unwrap().sessions_list().unwrap().len() == 1);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
