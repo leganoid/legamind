@@ -1782,3 +1782,18 @@ label.inline {
 .tool-name {
   font-weight: 600;
 }
+
+.log-view {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  max-height: 50vh;
+  overflow: auto;
+  background: #0f1216;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

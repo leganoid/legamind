@@ -378,6 +378,14 @@ export interface ToolActivity {
   status: "running" | "pending" | "done";
 }
 
+export interface MessageToolRow {
+  message_id: string;
+  tool: string;
+  path: string | null;
+  ok: boolean;
+  summary: string | null;
+}
+
 export interface LocalModelRow {
   id: string;
   label: string;
@@ -386,6 +394,13 @@ export interface LocalModelRow {
   max_tokens: number;
   thinks: boolean;
   size_gb: number;
+}
+
+export interface LogTail {
+  name: string;
+  path: string;
+  text: string;
+  size: number;
 }
 
 export interface ChatErrorPayload {

@@ -18,8 +18,9 @@ pub mod workspace;
 pub mod backup;
 pub mod watcher;
 pub mod local_models;
+pub mod logs;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -40,7 +41,6 @@ pub struct AppState {
     pub engine_error: Mutex<Option<String>>,
     /// Ожидающие подтверждения записи файлов (approval_id → канал ответа).
     pub approvals: Mutex<HashMap<String, crate::tools::PendingApproval>>,
-    pub allowed_approvals: Mutex<HashSet<String>>,
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
     pub watch_root: Mutex<Option<PathBuf>>,
 }
@@ -311,7 +311,6 @@ pub fn run() {
                 cancel: Mutex::new(HashMap::new()),
                 engine_error: Mutex::new(None),
                 approvals: Mutex::new(HashMap::new()),
-                allowed_approvals: Mutex::new(HashSet::new()),
                 watcher: Mutex::new(None),
                 watch_root: Mutex::new(None),
             });
@@ -353,6 +352,7 @@ pub fn run() {
             chat::chat_command,
             chat::sources_list,
             chat::messages_search,
+            chat::message_tools,
             workspace::pick_folder,
             workspace::session_set_workdir,
             workspace::session_set_policy,
@@ -360,6 +360,7 @@ pub fn run() {
             tools::tool_approve,
             tools::tool_runs_list,
             tools::tool_undo_last,
+            tools::session_permissions_clear,
             rag::rag_reindex,
             rag::rag_status,
             rag::rag_get_enabled,
@@ -372,6 +373,7 @@ pub fn run() {
             local_models::local_models_list,
             local_models::local_model_add,
             local_models::local_model_remove,
+            logs::logs_tail,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,

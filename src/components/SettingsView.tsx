@@ -1,6 +1,6 @@
 import { For, Show, createSignal, onMount } from "solid-js";
 import { api } from "../api";
-import type { AppInfo, BackupInfo, WebConfigView, WebTestResult } from "../types";
+import type { AppInfo, BackupInfo, LogTail, WebConfigView, WebTestResult } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function SettingsView() {
@@ -23,6 +23,10 @@ export default function SettingsView() {
   const [dbBusy, setDbBusy] = createSignal(false);
   const [encryptBackup, setEncryptBackup] = createSignal(false);
   const [backupInfo, setBackupInfo] = createSignal<BackupInfo | null>(null);
+  const [logName, setLogName] = createSignal("app.log");
+  const [logLines, setLogLines] = createSignal(400);
+  const [logTail, setLogTail] = createSignal<LogTail | null>(null);
+  const [logBusy, setLogBusy] = createSignal(false);
   const [health, setHealth] = createSignal<
     { engine: string; search: string; ok: boolean } | null
   >(null);
@@ -48,8 +52,19 @@ export default function SettingsView() {
     setGoogleCx(config.google_cx);
   };
 
-  const loadBackupInfo = async () => {
+  const loadLog = async () => {
+    setLogBusy(true);
+    setError(null);
     try {
+      setLogTail(await api.logsTail(logName(), logLines()));
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLogBusy(false);
+    }
+  };
+
+  const loadBackupInfo = async () => {    try {
       setBackupInfo(await api.dbBackupInfo());
     } catch {
       setBackupInfo(null);
@@ -462,6 +477,54 @@ export default function SettingsView() {
           <button class="btn ghost" onClick={() => void api.openPath(backupInfo()!.dir)}>
             📂 Открыть папку копий
           </button>
+        </Show>
+      </section>
+
+      <section class="card">
+        <h2>Диагностика</h2>
+        <p class="muted small">
+          Хвост логов приложения. <code>prompts.log</code> содержит тексты промптов — не
+          пересылайте его без необходимости.
+        </p>
+        <div class="row">
+          <label>
+            Лог
+            <select value={logName()} onChange={(event) => setLogName(event.currentTarget.value)}>
+              <option value="app.log">app.log — события</option>
+              <option value="audit.log">audit.log — действия с файлами</option>
+              <option value="prompts.log">prompts.log — промпты</option>
+              <option value="engine_stdout.log">engine_stdout.log</option>
+              <option value="engine_stderr.log">engine_stderr.log</option>
+            </select>
+          </label>
+          <label>
+            Строк
+            <select
+              value={String(logLines())}
+              onChange={(event) => setLogLines(Number(event.currentTarget.value))}
+            >
+              <option value="200">200</option>
+              <option value="400">400</option>
+              <option value="1000">1000</option>
+            </select>
+          </label>
+          <button class="btn" onClick={() => void loadLog()} disabled={logBusy()}>
+            {logBusy() ? "Читаю…" : "Показать"}
+          </button>
+          <button
+            class="btn ghost"
+            onClick={() =>
+              void api.openPath(`${info()?.data_dir ?? ""}\\logs`).catch(() => {})
+            }
+          >
+            📂 Открыть папку логов
+          </button>
+        </div>
+        <Show when={logTail()}>
+          <p class="muted small mono">
+            {logTail()!.path} · {(logTail()!.size / 1024).toFixed(1)} КБ
+          </p>
+          <pre class="log-view">{logTail()!.text || "Лог пуст"}</pre>
         </Show>
       </section>
       </Show>

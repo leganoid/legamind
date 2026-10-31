@@ -723,10 +723,6 @@ pub struct PendingApproval {
     pub kind: String,
 }
 
-pub fn approval_key(session_id: &str, kind: &str) -> String {
-    format!("{session_id}:{kind}")
-}
-
 /// Ждёт подтверждения пользователя через модалку (oneshot + таймаут).
 pub async fn wait_approval(
     app: &AppHandle,
@@ -734,10 +730,9 @@ pub async fn wait_approval(
     mut payload: ApprovalPayload,
 ) -> bool {
     if state
-        .allowed_approvals
-        .lock()
-        .unwrap()
-        .contains(&approval_key(&payload.session_id, &payload.kind))
+        .db
+        .session_permission_has(&payload.session_id, &payload.kind)
+        .unwrap_or(false)
     {
         return true;
     }
@@ -889,15 +884,24 @@ pub async fn tool_approve(
     let pending = state.approvals.lock().unwrap().remove(&approval_id);
     if let Some(pending) = pending {
         if approve && remember.unwrap_or(false) {
-            state
-                .allowed_approvals
-                .lock()
-                .unwrap()
-                .insert(approval_key(&pending.session_id, &pending.kind));
+            let _ = state
+                .db
+                .session_permission_add(&pending.session_id, &pending.kind);
         }
         let _ = pending.sender.send(approve);
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn session_permissions_clear(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .session_permissions_clear(&session_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Описание протокола инструментов для system-промпта.

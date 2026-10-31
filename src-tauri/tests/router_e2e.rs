@@ -3,7 +3,7 @@
 //! Запускается вручную (нужны модели OpenVINO и venv):
 //!   cargo test --test router_e2e -- --ignored --nocapture
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -94,7 +94,6 @@ fn make_state(port: u16) -> (AppState, std::path::PathBuf) {
         cancel: Mutex::new(HashMap::new()),
         engine_error: Mutex::new(None),
         approvals: Mutex::new(HashMap::new()),
-        allowed_approvals: Mutex::new(HashSet::new()),
         watcher: Mutex::new(None),
         watch_root: Mutex::new(None),
     };

@@ -165,6 +165,16 @@ pub struct ToolRunRow {
     pub created_at: String,
 }
 
+/// Инструмент, привязанный к сообщению (для карточек в чате).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageToolRow {
+    pub message_id: String,
+    pub tool: String,
+    pub path: Option<String>,
+    pub ok: bool,
+    pub summary: Option<String>,
+}
+
 /// Резервная копия файла перед изменением (для отмены).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolBackupRow {
@@ -626,6 +636,23 @@ impl Db {
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (11)", [])?;
         }
+
+        if current < 12 {
+            // Постоянные карточки инструментов у сообщений и разрешения на сессию.
+            conn.execute_batch(
+                r#"
+                ALTER TABLE tool_runs ADD COLUMN message_id TEXT;
+                CREATE INDEX IF NOT EXISTS idx_tool_runs_message ON tool_runs(message_id);
+                CREATE TABLE IF NOT EXISTS session_permissions (
+                  session_id TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  PRIMARY KEY (session_id, kind)
+                );
+                "#,
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (12)", [])?;
+        }
         Ok(())
     }
 
@@ -762,7 +789,37 @@ impl Db {
         conn.execute("DELETE FROM messages WHERE session_id = ?1", params![id])?;
         conn.execute("DELETE FROM tool_runs WHERE session_id = ?1", params![id])?;
         conn.execute("DELETE FROM tool_backups WHERE session_id = ?1", params![id])?;
+        conn.execute("DELETE FROM session_permissions WHERE session_id = ?1", params![id])?;
         conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn session_permission_add(&self, session_id: &str, kind: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT OR REPLACE INTO session_permissions (session_id, kind, created_at)
+             VALUES (?1, ?2, ?3)",
+            params![session_id, kind, now()],
+        )?;
+        Ok(())
+    }
+
+    pub fn session_permission_has(&self, session_id: &str, kind: &str) -> Result<bool> {
+        let conn = self.conn();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM session_permissions WHERE session_id = ?1 AND kind = ?2",
+            params![session_id, kind],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn session_permissions_clear(&self, session_id: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "DELETE FROM session_permissions WHERE session_id = ?1",
+            params![session_id],
+        )?;
         Ok(())
     }
 
@@ -1195,6 +1252,36 @@ impl Db {
         let conn = self.conn();
         conn.execute("DELETE FROM tool_runs WHERE session_id = ?1", params![session_id])?;
         Ok(())
+    }
+
+    pub fn tool_runs_link_message(&self, request_id: &str, message_id: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE tool_runs SET message_id = ?2 WHERE request_id = ?1",
+            params![request_id, message_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn tool_runs_with_message(&self, session_id: &str) -> Result<Vec<MessageToolRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT message_id, tool, path, ok, summary FROM tool_runs
+             WHERE session_id = ?1 AND message_id IS NOT NULL
+             ORDER BY rowid ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![session_id], |row| {
+                Ok(MessageToolRow {
+                    message_id: row.get(0)?,
+                    tool: row.get(1)?,
+                    path: row.get(2)?,
+                    ok: row.get::<_, i64>(3)? != 0,
+                    summary: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     // ------------------------------------------------------------------ резервные копии
@@ -1927,6 +2014,37 @@ mod tests {
         assert!(Db::open(&path).unwrap().sessions_list().unwrap().len() == 1);
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn permissions_and_message_tools_roundtrip() {
+        let db = Db::open_memory().unwrap();
+        let session = db.session_create("Права", "local/qwen-1.5b").unwrap();
+        assert!(!db
+            .session_permission_has(&session.id, "write")
+            .unwrap());
+        db.session_permission_add(&session.id, "write").unwrap();
+        assert!(db.session_permission_has(&session.id, "write").unwrap());
+        db.session_permissions_clear(&session.id).unwrap();
+        assert!(!db
+            .session_permission_has(&session.id, "write")
+            .unwrap());
+
+        db.tool_run_add(
+            &session.id,
+            "req-1",
+            "read_file",
+            Some("a.md"),
+            true,
+            "ok",
+            "out",
+        )
+        .unwrap();
+        db.tool_runs_link_message("req-1", "msg-1").unwrap();
+        let rows = db.tool_runs_with_message(&session.id).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].message_id, "msg-1");
+        assert_eq!(rows[0].tool, "read_file");
     }
 
     #[test]

@@ -297,6 +297,17 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const clearPermissions = async () => {
+    const id = activeId();
+    if (!id) return;
+    try {
+      await api.sessionPermissionsClear(id);
+      setNotice("Разрешения на действия в этой сессии сброшены");
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const toggleWeb = async () => {
     try {
       const config = await api.webConfigSet({ enabled: !webEnabled() });
@@ -345,6 +356,21 @@ export default function ChatView(props: Props) {
     setToolsLive([]);
     setToolsByMessage({});
     setMessages(await api.messagesList(id));
+    const toolRows = await api.messageTools(id);
+    const grouped: Record<string, ToolActivity[]> = {};
+    toolRows.forEach((row, index) => {
+      const list = grouped[row.message_id] ?? [];
+      list.push({
+        id: `${row.message_id}-${index}`,
+        tool: row.tool,
+        path: row.path,
+        summary: row.summary,
+        ok: row.ok,
+        status: "done",
+      });
+      grouped[row.message_id] = list;
+    });
+    setToolsByMessage(grouped);
     await loadSources(id);
     const session = sessions().find((s) => s.id === id);
     if (session && props.models.some((m) => m.id === session.model_id)) {
@@ -962,6 +988,14 @@ export default function ChatView(props: Props) {
                 }}
               >
                 RAG: {ragEnabled() ? "включён" : "выключен"}
+              </button>
+              <button
+                onClick={() => {
+                  closeProjectMenu();
+                  void clearPermissions();
+                }}
+              >
+                🔓 Сбросить разрешения
               </button>
             </div>
           </details>

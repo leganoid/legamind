@@ -20,8 +20,10 @@ import type {
   FinetuneStatus,
   LessonRow,
   LocalModelRow,
+  LogTail,
   MemoryRow,
   MessageHitRow,
+  MessageToolRow,
   ModelInfo,
   ProviderInput,
   ProviderModelRow,
@@ -122,6 +124,10 @@ export const api = {
     invoke<void>("tool_approve", { approvalId, approve, remember }),
   toolRunsList: (sessionId: string, limit = 20) =>
     invoke<ToolRunRow[]>("tool_runs_list", { sessionId, limit }),
+  messageTools: (sessionId: string) =>
+    invoke<MessageToolRow[]>("message_tools", { sessionId }),
+  sessionPermissionsClear: (sessionId: string) =>
+    invoke<void>("session_permissions_clear", { sessionId }),
   toolUndoLast: (sessionId: string) => invoke<string>("tool_undo_last", { sessionId }),
   ragReindex: (sessionId: string) => invoke<RagStats>("rag_reindex", { sessionId }),
   ragStatus: (sessionId: string) => invoke<RagStats>("rag_status", { sessionId }),
@@ -139,6 +145,8 @@ export const api = {
     thinks?: boolean;
   }) => invoke<LocalModelRow>("local_model_add", { input }),
   localModelRemove: (id: string) => invoke<void>("local_model_remove", { id }),
+  logsTail: (name: string, lines = 400) =>
+    invoke<LogTail>("logs_tail", { name, lines }),
   watchWorkdir: (sessionId: string) => invoke<string>("watch_workdir", { sessionId }),
   unwatchWorkdir: () => invoke<void>("unwatch_workdir"),
 

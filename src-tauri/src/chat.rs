@@ -677,6 +677,9 @@ async fn run_chat(
                 Some(&model_id),
                 Some(outcome.tokens as i64),
             ) {
+                let _ = state
+                    .db
+                    .tool_runs_link_message(&request_id, &message.id);
                 for source in &sources {
                     let _ = state.db.source_add(
                         &session_id,
@@ -1079,6 +1082,18 @@ pub async fn sources_list(
     session_id: String,
 ) -> Result<Vec<crate::db::SourceRow>, String> {
     state.db.sources_list(&session_id).map_err(|e| e.to_string())
+}
+
+/// Инструменты, привязанные к сообщениям сессии (для карточек после перезагрузки).
+#[tauri::command]
+pub async fn message_tools(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Vec<crate::db::MessageToolRow>, String> {
+    state
+        .db
+        .tool_runs_with_message(&session_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Поиск по сообщениям и названиям сессий для боковой панели.
