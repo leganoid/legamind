@@ -143,6 +143,7 @@ pub fn db_backup_info(state: State<'_, AppState>) -> Result<BackupInfo, String> 
 pub async fn db_backup(
     state: State<'_, AppState>,
     path: Option<String>,
+    encrypted: Option<bool>,
 ) -> Result<String, String> {
     let dest = match path {
         Some(value) => PathBuf::from(value),
@@ -155,14 +156,23 @@ pub async fn db_backup(
             file.ok_or_else(|| "Сохранение отменено".to_string())?
         }
     };
-    write_encrypted_backup(&state.db, &dest).map_err(|e| e.to_string())?;
+    let encrypt = encrypted.unwrap_or(false);
+    if encrypt {
+        write_encrypted_backup(&state.db, &dest).map_err(|e| e.to_string())?;
+    } else {
+        state.db.backup_to(&dest).map_err(|e| e.to_string())?;
+    }
     state
         .db
         .setting_set("last_auto_backup", &chrono::Utc::now().to_rfc3339())
         .ok();
     let _ = crate::logging::log_line(
         "app.log",
-        &format!("db backup → {}", dest.display()),
+        &format!(
+            "db backup → {} ({})",
+            dest.display(),
+            if encrypt { "dpapi" } else { "plain sqlite" }
+        ),
     );
     Ok(dest.to_string_lossy().to_string())
 }

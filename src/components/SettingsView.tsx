@@ -20,6 +20,7 @@ export default function SettingsView() {
   const [resetOpen, setResetOpen] = createSignal(false);
   const [restoreOpen, setRestoreOpen] = createSignal(false);
   const [dbBusy, setDbBusy] = createSignal(false);
+  const [encryptBackup, setEncryptBackup] = createSignal(false);
   const [backupInfo, setBackupInfo] = createSignal<BackupInfo | null>(null);
   const [health, setHealth] = createSignal<
     { engine: string; search: string; ok: boolean } | null
@@ -146,7 +147,7 @@ export default function SettingsView() {
     setDbBusy(true);
     setError(null);
     try {
-      const path = await api.dbBackup();
+      const path = await api.dbBackup(encryptBackup());
       setNotice(`Копия базы сохранена: ${path}`);
       await loadBackupInfo();
     } catch (err) {
@@ -402,9 +403,14 @@ export default function SettingsView() {
       <section class="card">
         <h2>Данные</h2>
         <p class="muted small">
-          Копия базы включает сессии, сообщения, память, навыки, уроки и настройки. Файлы копий
-          шифруются средствами Windows (DPAPI) и привязаны к вашей учётной записи. Ключи
+          Копия базы включает сессии, сообщения, память, навыки, уроки и настройки. Ключи
           провайдеров хранятся отдельно (Credential Manager) и в копию не попадают.
+        </p>
+        <p class="muted small">
+          <b>Ручная копия</b> по умолчанию — обычный файл SQLite: его можно открыть сторонними
+          инструментами, перенести на другой компьютер и восстановить. <b>Автокопии</b> в папке
+          данных шифруются DPAPI и открываются только под вашей учётной записью; для переноса
+          используйте ручную копию.
         </p>
         <div class="row">
           <button class="btn" onClick={() => void backupDb()} disabled={dbBusy()}>
@@ -414,6 +420,18 @@ export default function SettingsView() {
             ♻ Восстановить из копии…
           </button>
         </div>
+        <label class="inline">
+          <input
+            type="checkbox"
+            checked={encryptBackup()}
+            onChange={(event) => setEncryptBackup(event.currentTarget.checked)}
+          />
+          Шифровать ручную копию (DPAPI)
+        </label>
+        <p class="muted small">
+          Зашифрованную копию нельзя открыть на другом компьютере или под другим пользователем
+          Windows — только восстановить в Legamind на этой учётной записи.
+        </p>
         <Show when={dbBusy()}>
           <p class="muted small">Работаю с базой…</p>
         </Show>

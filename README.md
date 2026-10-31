@@ -124,8 +124,10 @@ scripts/             mock_openai.py, smoke.ps1, env.ps1, finetune_qlora.py, expo
 
 * БД: `%APPDATA%\com.legamind.app\legamind.db`
 * Логи: `%APPDATA%\com.legamind.app\logs\`
-* Автокопии и ручные копии: `%APPDATA%\com.legamind.app\backups\` — **шифруются DPAPI**
-  (открываются только под вашей учётной записью Windows)
+* Автокопии: `%APPDATA%\com.legamind.app\backups\auto-*.db` — шифруются DPAPI (только ваша
+  учётная запись Windows)
+* Ручные копии (Настройки → Приложение → Данные): обычный SQLite-файл по умолчанию — можно
+  перенести на другой ПК; шифрование DPAPI включается галочкой
 * Экспорт дебатов: `%APPDATA%\com.legamind.app\exports\debate-<id>.md`
 ## Интернет для локальных моделей
 

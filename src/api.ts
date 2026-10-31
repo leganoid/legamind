@@ -125,7 +125,7 @@ export const api = {
   ragStatus: (sessionId: string) => invoke<RagStats>("rag_status", { sessionId }),
   ragGetEnabled: () => invoke<boolean>("rag_get_enabled"),
   ragSetEnabled: (enabled: boolean) => invoke<boolean>("rag_set_enabled", { enabled }),
-  dbBackup: () => invoke<string>("db_backup"),
+  dbBackup: (encrypted = false) => invoke<string>("db_backup", { encrypted }),
   dbRestore: () => invoke<string>("db_restore"),
   dbBackupInfo: () => invoke<BackupInfo>("db_backup_info"),
 
