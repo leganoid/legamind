@@ -1723,3 +1723,9 @@ label.inline {
 .health .kv {
   margin: 0;
 }
+
+.menu-note {
+  padding: 4px 10px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}

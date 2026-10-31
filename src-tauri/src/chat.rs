@@ -976,8 +976,15 @@ fn workdir_command(
     crate::workspace::init_project(&dir, &session).map_err(|e| e.to_string())?;
     db.session_set_workdir(session_id, Some(&dir.to_string_lossy()))
         .map_err(|e| e.to_string())?;
+    let index_note = match crate::rag::index_workdir(db, &dir) {
+        Ok(stats) => format!(
+            "Индекс: {} фрагментов из {} файлов.",
+            stats.chunks, stats.files
+        ),
+        Err(err) => format!("Индекс не построен: {err}"),
+    };
     notice(format!(
-        "Рабочая папка: {}\nСозданы exports/, datasets/, notes.md и .legamind/",
+        "Рабочая папка: {}\nСозданы exports/, datasets/, notes.md и .legamind/\n{index_note}",
         dir.display()
     ))
 }

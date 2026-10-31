@@ -48,7 +48,9 @@ export default function ChatView(props: Props) {
   const [approval, setApproval] = createSignal<ToolApproval | null>(null);
   const [toolRuns, setToolRuns] = createSignal<ToolRunRow[] | null>(null);
   const [ragEnabled, setRagEnabled] = createSignal(true);
+  const [indexStats, setIndexStats] = createSignal<{ chunks: number; files: number } | null>(null);
   const [undoOpen, setUndoOpen] = createSignal(false);
+  const autoIndexed = new Set<string>();
   let projectMenu: HTMLDetailsElement | undefined;
   const [context, setContext] = createSignal<ContextUsage | null>(null);
   const [error, setError] = createSignal<string | null>(null);
@@ -182,6 +184,19 @@ export default function ChatView(props: Props) {
     void updatePolicy({ trust: value });
   };
 
+  const refreshIndexStats = async () => {
+    const id = activeId();
+    if (!id) {
+      setIndexStats(null);
+      return;
+    }
+    try {
+      setIndexStats(await api.ragStatus(id));
+    } catch {
+      setIndexStats(null);
+    }
+  };
+
   const chooseWorkdir = async () => {
     const id = activeId();
     if (!id) {
@@ -205,7 +220,14 @@ export default function ChatView(props: Props) {
     try {
       const session = await api.sessionSetWorkdir(id, path, true);
       setSessions((prev) => prev.map((s) => (s.id === session.id ? session : s)));
-      setNotice(`Рабочая папка: ${session.workdir}`);
+      setNotice("Рабочая папка выбрана, строю индекс…");
+      try {
+        const stats = await api.ragReindex(id);
+        setIndexStats(stats);
+        setNotice(`Индекс готов: ${stats.chunks} фрагментов из ${stats.files} файлов`);
+      } catch (err) {
+        setNotice(`Рабочая папка: ${session.workdir}. Индекс не построен: ${String(err)}`);
+      }
     } catch (err) {
       setError(String(err));
     }
@@ -250,6 +272,7 @@ export default function ChatView(props: Props) {
     try {
       setNotice("Индексирую рабочую папку…");
       const stats = await api.ragReindex(id);
+      setIndexStats(stats);
       setNotice(`Индекс готов: ${stats.chunks} фрагментов из ${stats.files} файлов`);
     } catch (err) {
       setError(String(err));
@@ -282,6 +305,24 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const ensureIndex = async (id: string, workdir: string | null) => {
+    if (!workdir || !ragEnabled() || autoIndexed.has(id)) return;
+    autoIndexed.add(id);
+    try {
+      const stats = await api.ragStatus(id);
+      setIndexStats(stats);
+      if (stats.chunks === 0) {
+        const built = await api.ragReindex(id);
+        setIndexStats(built);
+        setNotice(
+          `Индекс построен автоматически: ${built.chunks} фрагментов из ${built.files} файлов`,
+        );
+      }
+    } catch {
+      // Фоновая индексация не должна мешать работе чата.
+    }
+  };
+
   const openSession = async (id: string) => {
     setActiveId(id);
     setError(null);
@@ -292,6 +333,7 @@ export default function ChatView(props: Props) {
       setModelId(session.model_id);
     }
     await refreshContext();
+    void ensureIndex(id, session?.workdir ?? null);
   };
 
   const createSession = async () => {
@@ -785,9 +827,20 @@ export default function ChatView(props: Props) {
             </div>
           </details>
 
-          <details class="menu" ref={projectMenu}>
+          <details
+            class="menu"
+            ref={projectMenu}
+            onToggle={(event) => {
+              if (event.currentTarget.open) void refreshIndexStats();
+            }}
+          >
             <summary class="btn small">Проект ▾</summary>
             <div class="menu-items">
+              <div class="menu-note muted small">
+                {indexStats()
+                  ? `Индекс: фрагментов ${indexStats()!.chunks}, файлов ${indexStats()!.files}`
+                  : "Индекс не построен"}
+              </div>
               <button
                 onClick={() => {
                   closeProjectMenu();
