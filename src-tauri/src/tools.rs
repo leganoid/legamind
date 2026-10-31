@@ -716,20 +716,42 @@ pub struct ToolEventPayload {
     pub ok: bool,
 }
 
+/// Ожидающее подтверждение: канал ответа и параметры для «разрешить на сессию».
+pub struct PendingApproval {
+    pub sender: tokio::sync::oneshot::Sender<bool>,
+    pub session_id: String,
+    pub kind: String,
+}
+
+pub fn approval_key(session_id: &str, kind: &str) -> String {
+    format!("{session_id}:{kind}")
+}
+
 /// Ждёт подтверждения пользователя через модалку (oneshot + таймаут).
 pub async fn wait_approval(
     app: &AppHandle,
     state: &AppState,
     mut payload: ApprovalPayload,
 ) -> bool {
+    if state
+        .allowed_approvals
+        .lock()
+        .unwrap()
+        .contains(&approval_key(&payload.session_id, &payload.kind))
+    {
+        return true;
+    }
     let approval_id = crate::db::new_id();
     payload.approval_id = approval_id.clone();
     let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
-    state
-        .approvals
-        .lock()
-        .unwrap()
-        .insert(approval_id.clone(), tx);
+    state.approvals.lock().unwrap().insert(
+        approval_id.clone(),
+        PendingApproval {
+            sender: tx,
+            session_id: payload.session_id.clone(),
+            kind: payload.kind.clone(),
+        },
+    );
     let _ = app.emit("tool:approval", payload);
     let approved = matches!(
         tokio::time::timeout(Duration::from_secs(APPROVAL_TIMEOUT_SECS), rx).await,
@@ -862,10 +884,18 @@ pub async fn tool_approve(
     state: tauri::State<'_, AppState>,
     approval_id: String,
     approve: bool,
+    remember: Option<bool>,
 ) -> Result<(), String> {
-    let sender = state.approvals.lock().unwrap().remove(&approval_id);
-    if let Some(sender) = sender {
-        let _ = sender.send(approve);
+    let pending = state.approvals.lock().unwrap().remove(&approval_id);
+    if let Some(pending) = pending {
+        if approve && remember.unwrap_or(false) {
+            state
+                .allowed_approvals
+                .lock()
+                .unwrap()
+                .insert(approval_key(&pending.session_id, &pending.kind));
+        }
+        let _ = pending.sender.send(approve);
     }
     Ok(())
 }

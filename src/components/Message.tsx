@@ -1,6 +1,6 @@
 import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "solid-js";
-import type { ChatMessageRow, SourceRow } from "../types";
+import type { ChatMessageRow, SourceRow, ToolActivity } from "../types";
 import { renderMarkdown } from "../markdown";
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   streaming?: boolean;
   actions?: JSX.Element;
   sources?: SourceRow[];
+  tools?: ToolActivity[];
 }
 
 export default function Message(props: Props) {
@@ -66,6 +67,35 @@ export default function Message(props: Props) {
         fallback={<div class="message-body">{props.message.content}</div>}
       >
         <div class="message-body markdown" innerHTML={renderMarkdown(props.message.content)} />
+      </Show>
+      <Show when={props.tools && props.tools.length > 0}>
+        <details class="tool-cards">
+          <summary class="muted small">Инструменты ({props.tools!.length})</summary>
+          <For each={props.tools}>
+            {(item) => (
+              <div
+                classList={{
+                  "tool-card": true,
+                  error: item.status === "done" && !item.ok,
+                }}
+              >
+                <span class="tool-state">
+                  {item.status === "pending" ? "⏳" : item.status === "running" ? "…" : item.ok ? "✓" : "✗"}
+                </span>
+                <span class="tool-name">{item.tool}</span>
+                <Show when={item.path}>
+                  <span class="muted small mono">{item.path}</span>
+                </Show>
+                <Show when={item.summary}>
+                  <span class="muted small">{item.summary}</span>
+                </Show>
+                <Show when={item.status === "pending"}>
+                  <span class="muted small">ждёт подтверждения</span>
+                </Show>
+              </div>
+            )}
+          </For>
+        </details>
       </Show>
       <Show when={props.sources && props.sources.length > 0}>
         <details class="sources">

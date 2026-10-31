@@ -117,8 +117,8 @@ export const api = {
   webTest: () => invoke<WebTestResult>("web_test"),
   webFetchPage: (url: string) => invoke<string>("web_fetch_page", { url }),
   sourcesList: (sessionId: string) => invoke<SourceRow[]>("sources_list", { sessionId }),
-  toolApprove: (approvalId: string, approve: boolean) =>
-    invoke<void>("tool_approve", { approvalId, approve }),
+  toolApprove: (approvalId: string, approve: boolean, remember = false) =>
+    invoke<void>("tool_approve", { approvalId, approve, remember }),
   toolRunsList: (sessionId: string, limit = 20) =>
     invoke<ToolRunRow[]>("tool_runs_list", { sessionId, limit }),
   toolUndoLast: (sessionId: string) => invoke<string>("tool_undo_last", { sessionId }),

@@ -369,6 +369,15 @@ export interface RagIndexedPayload {
   files: number;
 }
 
+export interface ToolActivity {
+  id: string;
+  tool: string;
+  path: string | null;
+  summary: string | null;
+  ok: boolean;
+  status: "running" | "pending" | "done";
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

@@ -1729,3 +1729,43 @@ label.inline {
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
 }
+
+/* ---------------------------------------------------------------- карточки инструментов */
+.tool-cards {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+
+.tool-cards summary {
+  cursor: pointer;
+}
+
+.tool-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 2px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.tool-card:first-of-type {
+  border-top: none;
+}
+
+.tool-card.error {
+  color: #ff9b97;
+}
+
+.tool-state {
+  width: 14px;
+  text-align: center;
+}
+
+.tool-name {
+  font-weight: 600;
+}

@@ -15,6 +15,7 @@ import type {
   ToolEventPayload,
   ToolRunRow,
   RagIndexedPayload,
+  ToolActivity,
 } from "../types";
 import Sidebar from "./Sidebar";
 import ChatMessage from "./Message";
@@ -51,6 +52,9 @@ export default function ChatView(props: Props) {
   const [ragEnabled, setRagEnabled] = createSignal(true);
   const [indexStats, setIndexStats] = createSignal<{ chunks: number; files: number } | null>(null);
   const [undoOpen, setUndoOpen] = createSignal(false);
+  const [toolsLive, setToolsLive] = createSignal<ToolActivity[]>([]);
+  const [toolsByMessage, setToolsByMessage] = createSignal<Record<string, ToolActivity[]>>({});
+  const [approvalRemember, setApprovalRemember] = createSignal(false);
   const autoIndexed = new Set<string>();
   let projectMenu: HTMLDetailsElement | undefined;
   const [context, setContext] = createSignal<ContextUsage | null>(null);
@@ -328,6 +332,8 @@ export default function ChatView(props: Props) {
   const openSession = async (id: string) => {
     setActiveId(id);
     setError(null);
+    setToolsLive([]);
+    setToolsByMessage({});
     setMessages(await api.messagesList(id));
     await loadSources(id);
     const session = sessions().find((s) => s.id === id);
@@ -387,6 +393,8 @@ export default function ChatView(props: Props) {
     setStreamText("");
     setStatusText(null);
     setError(null);
+    setToolsLive([]);
+    setApprovalRemember(false);
   };
 
   const runCommand = async (raw: string) => {
@@ -578,6 +586,14 @@ export default function ChatView(props: Props) {
           return;
         }
         setMessages((prev) => [...prev, event.payload.message]);
+        const finishedTools = toolsLive();
+        if (finishedTools.length > 0) {
+          setToolsByMessage((prev) => ({
+            ...prev,
+            [event.payload.message.id]: finishedTools,
+          }));
+        }
+        setToolsLive([]);
         setRequestId(null);
         setStreamText("");
         setStatusText(null);
@@ -593,18 +609,27 @@ export default function ChatView(props: Props) {
       await listen<ChatErrorPayload>("chat:error", (event) => {
         if (event.payload.session_id !== activeId()) return;
         setError(event.payload.error);
+        setToolsLive([]);
         setRequestId(null);
         setStreamText("");
         setStatusText(null);
       }),
     );
 
-    // M6: инструменты — подтверждение записи и статусы.
+    // M6: инструменты — подтверждение записи, статусы и карточки.
     unlisteners.push(
       await listen<ToolApproval>("tool:approval", (event) => {
         if (event.payload.session_id !== activeId()) return;
         setApproval(event.payload);
+        setApprovalRemember(false);
         setStatusText("Жду подтверждения записи файла…");
+        setToolsLive((prev) =>
+          prev.map((item, index) =>
+            index === prev.length - 1 && item.status === "running"
+              ? { ...item, status: "pending" }
+              : item,
+          ),
+        );
       }),
     );
     unlisteners.push(
@@ -612,6 +637,17 @@ export default function ChatView(props: Props) {
         if (event.payload.session_id !== activeId()) return;
         const suffix = event.payload.path ? ` · ${event.payload.path}` : "";
         setStatusText(`Инструмент: ${event.payload.tool}${suffix}`);
+        setToolsLive((prev) => [
+          ...prev,
+          {
+            id: `${event.payload.request_id}-${prev.length}-${Date.now()}`,
+            tool: event.payload.tool,
+            path: event.payload.path,
+            summary: null,
+            ok: true,
+            status: "running",
+          },
+        ]);
       }),
     );
     unlisteners.push(
@@ -619,6 +655,25 @@ export default function ChatView(props: Props) {
         if (event.payload.session_id !== activeId()) return;
         setStatusText(null);
         if (event.payload.summary) setNotice(event.payload.summary);
+        setToolsLive((prev) => {
+          const index = [...prev]
+            .reverse()
+            .findIndex(
+              (item) => item.tool === event.payload.tool && item.status !== "done",
+            );
+          if (index < 0) return prev;
+          const real = prev.length - 1 - index;
+          return prev.map((item, position) =>
+            position === real
+              ? {
+                  ...item,
+                  status: "done",
+                  ok: event.payload.ok,
+                  summary: event.payload.summary ?? item.summary,
+                }
+              : item,
+          );
+        });
       }),
     );
 
@@ -965,6 +1020,7 @@ export default function ChatView(props: Props) {
                 message={message}
                 modelLabel={modelLabel}
                 sources={sourcesByMessage()[message.id]}
+                tools={toolsByMessage()[message.id]}
                 actions={
                   !busy() && editingId() === null ? (
                     <>
@@ -1017,6 +1073,7 @@ export default function ChatView(props: Props) {
               }}
               modelLabel={modelLabel}
               streaming
+              tools={toolsLive()}
             />
           </Show>
         </div>
@@ -1109,13 +1166,23 @@ export default function ChatView(props: Props) {
             <Show when={approval()!.warning}>
               <div class="banner error">{approval()!.warning}</div>
             </Show>
+            <label class="inline">
+              <input
+                type="checkbox"
+                checked={approvalRemember()}
+                onChange={(event) => setApprovalRemember(event.currentTarget.checked)}
+              />
+              Больше не спрашивать про такие действия в этой сессии
+            </label>
             <div class="modal-actions">
               <button
                 class="btn primary"
                 onClick={async () => {
                   const current = approval();
+                  const remember = approvalRemember();
                   setApproval(null);
-                  if (current) await api.toolApprove(current.approval_id, true);
+                  setApprovalRemember(false);
+                  if (current) await api.toolApprove(current.approval_id, true, remember);
                 }}
               >
                 {approval()?.kind === "command"
@@ -1131,6 +1198,7 @@ export default function ChatView(props: Props) {
                 onClick={async () => {
                   const current = approval();
                   setApproval(null);
+                  setApprovalRemember(false);
                   if (current) await api.toolApprove(current.approval_id, false);
                 }}
               >

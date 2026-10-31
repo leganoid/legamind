@@ -18,7 +18,7 @@ pub mod workspace;
 pub mod backup;
 pub mod watcher;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -38,7 +38,8 @@ pub struct AppState {
     pub cancel: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub engine_error: Mutex<Option<String>>,
     /// Ожидающие подтверждения записи файлов (approval_id → канал ответа).
-    pub approvals: Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
+    pub approvals: Mutex<HashMap<String, crate::tools::PendingApproval>>,
+    pub allowed_approvals: Mutex<HashSet<String>>,
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
     pub watch_root: Mutex<Option<PathBuf>>,
 }
@@ -309,6 +310,7 @@ pub fn run() {
                 cancel: Mutex::new(HashMap::new()),
                 engine_error: Mutex::new(None),
                 approvals: Mutex::new(HashMap::new()),
+                allowed_approvals: Mutex::new(HashSet::new()),
                 watcher: Mutex::new(None),
                 watch_root: Mutex::new(None),
             });

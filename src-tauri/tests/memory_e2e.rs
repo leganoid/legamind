@@ -1,6 +1,6 @@
 //! Тесты памяти: FTS5-поиск и блок «Известное о проекте» для промпта.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use legamind_lib::db::Db;
@@ -25,6 +25,7 @@ fn make_state(name: &str) -> AppState {
         cancel: Mutex::new(HashMap::new()),
         engine_error: Mutex::new(None),
         approvals: Mutex::new(HashMap::new()),
+        allowed_approvals: Mutex::new(HashSet::new()),
         watcher: Mutex::new(None),
         watch_root: Mutex::new(None),
     }

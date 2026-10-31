@@ -2,7 +2,7 @@
 //!
 //! Запуск: cargo test --test anthropic_e2e -- --nocapture
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -80,6 +80,7 @@ fn make_state(provider_id: &str, base_url: &str) -> AppState {
         cancel: Mutex::new(HashMap::new()),
         engine_error: Mutex::new(None),
         approvals: Mutex::new(HashMap::new()),
+        allowed_approvals: Mutex::new(HashSet::new()),
         watcher: Mutex::new(None),
         watch_root: Mutex::new(None),
     }
