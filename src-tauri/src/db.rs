@@ -35,6 +35,8 @@ pub struct Session {
     pub trust: String,
     /// Уровень размышлений: off/on (локальные), low/high/max (DeepSeek), None — авто.
     pub reasoning: Option<String>,
+    /// Закреплена ли сессия (показывается сверху).
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -665,6 +667,13 @@ impl Db {
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (13)", [])?;
         }
+
+        if current < 14 {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (14)", [])?;
+        }
         Ok(())
     }
 
@@ -672,8 +681,8 @@ impl Db {
     pub fn sessions_list(&self) -> Result<Vec<Session>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning
-             FROM sessions ORDER BY updated_at DESC",
+            "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning, pinned
+             FROM sessions ORDER BY pinned DESC, updated_at DESC",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -687,6 +696,7 @@ impl Db {
                     mode: row.get(6)?,
                     trust: row.get(7)?,
                     reasoning: row.get(8)?,
+                    pinned: row.get::<_, i64>(9)? != 0,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -697,7 +707,7 @@ impl Db {
         let conn = self.conn();
         Ok(conn
             .query_row(
-                "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning
+                "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning, pinned
                  FROM sessions WHERE id = ?1",
                 params![id],
                 |row| {
@@ -711,6 +721,7 @@ impl Db {
                         mode: row.get(6)?,
                         trust: row.get(7)?,
                         reasoning: row.get(8)?,
+                        pinned: row.get::<_, i64>(9)? != 0,
                     })
                 },
             )
@@ -728,6 +739,7 @@ impl Db {
             mode: "chat".to_string(),
             trust: "workspace".to_string(),
             reasoning: None,
+            pinned: false,
         };
         let conn = self.conn();
         conn.execute(
@@ -735,6 +747,15 @@ impl Db {
             params![session.id, session.title, session.model_id, session.created_at, session.updated_at],
         )?;
         Ok(session)
+    }
+
+    pub fn session_set_pinned(&self, id: &str, pinned: bool) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE sessions SET pinned = ?2 WHERE id = ?1",
+            params![id, if pinned { 1 } else { 0 }],
+        )?;
+        Ok(())
     }
 
     pub fn session_set_workdir(&self, id: &str, workdir: Option<&str>) -> Result<()> {
@@ -2057,6 +2078,19 @@ mod tests {
         assert!(Db::open(&path).unwrap().sessions_list().unwrap().len() == 1);
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pinned_sessions_come_first() {
+        let db = Db::open_memory().unwrap();
+        let first = db.session_create("Первая", "local/qwen-1.5b").unwrap();
+        let second = db.session_create("Вторая", "local/qwen-1.5b").unwrap();
+        db.session_set_pinned(&first.id, true).unwrap();
+        let list = db.sessions_list().unwrap();
+        assert_eq!(list[0].id, first.id);
+        assert!(list[0].pinned);
+        assert_eq!(list[1].id, second.id);
+        assert!(!list[1].pinned);
     }
 
     #[test]

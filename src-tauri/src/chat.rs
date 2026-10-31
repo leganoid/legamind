@@ -424,6 +424,18 @@ pub async fn chat_send(
 }
 
 #[tauri::command]
+pub async fn session_pin(
+    state: State<'_, AppState>,
+    id: String,
+    pinned: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .session_set_pinned(&id, pinned)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn chat_stop(state: State<'_, AppState>, request_id: String) -> Result<(), String> {
     if let Some(flag) = state.cancel.lock().unwrap().get(&request_id) {
         flag.store(true, Ordering::Relaxed);

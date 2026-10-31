@@ -186,6 +186,8 @@ export default function App() {
   };
 
   onMount(async () => {
+    document.documentElement.dataset.theme =
+      localStorage.getItem("legamind.theme") === "light" ? "light" : "dark";
     await refreshProviders();
     const timer = window.setInterval(refreshModels, 15000);
     window.addEventListener("keydown", (event) => {

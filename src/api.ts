@@ -53,6 +53,7 @@ export const api = {
     invoke<Session>("sessions_create", { title: title ?? null, modelId }),
   sessionsRename: (id: string, title: string) => invoke<void>("sessions_rename", { id, title }),
   sessionsDelete: (id: string) => invoke<void>("sessions_delete", { id }),
+  sessionPin: (id: string, pinned: boolean) => invoke<void>("session_pin", { id, pinned }),
   messagesList: (sessionId: string) => invoke<ChatMessageRow[]>("messages_list", { sessionId }),
 
   modelsList: () => invoke<ModelInfo[]>("models_list"),

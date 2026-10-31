@@ -2,6 +2,7 @@
 
 :root {
   --bg: #14161a;
+  --code-bg: #0f1216;
   --panel: #1b1e24;
   --panel-2: #22262e;
   --border: #2c313a;
@@ -15,6 +16,20 @@
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
+}
+
+:root[data-theme="light"] {
+  --bg: #f3f5f8;
+  --code-bg: #eef1f5;
+  --panel: #ffffff;
+  --panel-2: #eceff4;
+  --border: #d3d9e3;
+  --text: #1b1f27;
+  --muted: #5d6673;
+  --accent: #2563eb;
+  --accent-dim: #1d4ed8;
+  --danger: #c62828;
+  --ok: #2e7d32;
 }
 
 * {
@@ -835,7 +850,7 @@ textarea {
 }
 
 .message-body.markdown pre {
-  background: #0f1216;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 12px;
@@ -945,7 +960,7 @@ textarea {
 }
 
 .preview-box {
-  background: #0f1216;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 12px;
@@ -1123,7 +1138,7 @@ label.inline {
 }
 
 .code-block {
-  background: #0f1216;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 12px;
@@ -1186,7 +1201,7 @@ label.inline {
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 12px;
   line-height: 1.5;
-  background: #0f1216;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
@@ -1341,7 +1356,7 @@ label.inline {
   padding: 8px 10px;
   max-height: 52vh;
   overflow: auto;
-  background: #0f1216;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-family: Consolas, "Cascadia Mono", monospace;
@@ -1374,7 +1389,7 @@ label.inline {
 .command-view {
   margin: 0;
   padding: 10px 12px;
-  background: #0f1216;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-family: Consolas, "Cascadia Mono", monospace;
@@ -1406,7 +1421,7 @@ label.inline {
 
 .move-view {
   padding: 10px 12px;
-  background: #0f1216;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-family: Consolas, "Cascadia Mono", monospace;
@@ -1788,7 +1803,7 @@ label.inline {
   padding: 10px 12px;
   max-height: 50vh;
   overflow: auto;
-  background: #0f1216;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-family: Consolas, "Cascadia Mono", monospace;
@@ -1812,7 +1827,7 @@ label.inline {
   padding: 8px 10px;
   max-height: 240px;
   overflow: auto;
-  background: #0f1216;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 5px;
   font-size: 11.5px;

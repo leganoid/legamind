@@ -419,6 +419,15 @@ export default function ChatView(props: Props) {
     await refreshSessions();
   };
 
+  const pinSession = async (id: string, pinned: boolean) => {
+    try {
+      await api.sessionPin(id, pinned);
+      await refreshSessions();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const deleteSession = async (id: string) => {
     const rid = requestId();
     if (rid && activeId() === id) await api.chatStop(rid);
@@ -846,6 +855,7 @@ export default function ChatView(props: Props) {
         onCreate={createSession}
         onRename={renameSession}
         onDelete={deleteSession}
+        onPin={pinSession}
       />
       <section class="chat-main">
         <header class="chat-head">

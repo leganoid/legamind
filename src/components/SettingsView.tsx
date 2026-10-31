@@ -27,6 +27,15 @@ export default function SettingsView() {
   const [logLines, setLogLines] = createSignal(400);
   const [logTail, setLogTail] = createSignal<LogTail | null>(null);
   const [logBusy, setLogBusy] = createSignal(false);
+  const [theme, setTheme] = createSignal(
+    localStorage.getItem("legamind.theme") === "light" ? "light" : "dark",
+  );
+
+  const applyTheme = (value: "dark" | "light") => {
+    setTheme(value);
+    localStorage.setItem("legamind.theme", value);
+    document.documentElement.dataset.theme = value;
+  };
   const [health, setHealth] = createSignal<
     { engine: string; search: string; ok: boolean } | null
   >(null);
@@ -399,6 +408,24 @@ export default function SettingsView() {
       </Show>
 
       <Show when={tab() === "app"}>
+      <section class="card">
+        <h2>Оформление</h2>
+        <div class="row">
+          <button
+            classList={{ btn: true, primary: theme() === "dark", ghost: theme() !== "dark" }}
+            onClick={() => applyTheme("dark")}
+          >
+            🌙 Тёмная
+          </button>
+          <button
+            classList={{ btn: true, primary: theme() === "light", ghost: theme() !== "light" }}
+            onClick={() => applyTheme("light")}
+          >
+            ☀ Светлая
+          </button>
+        </div>
+        <p class="muted small">Тема применяется сразу и запоминается.</p>
+      </section>
       <section class="card form">
         <h2>Приложение</h2>
         <dl class="kv">

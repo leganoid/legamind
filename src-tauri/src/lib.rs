@@ -354,6 +354,7 @@ pub fn run() {
             messages_list,
             chat::chat_send,
             chat::chat_stop,
+            chat::session_pin,
             chat::chat_regenerate,
             chat::chat_edit_and_resend,
             chat::context_usage,

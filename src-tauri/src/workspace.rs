@@ -262,6 +262,7 @@ mod tests {
             mode: "chat".into(),
             trust: "workspace".into(),
             reasoning: None,
+            pinned: false,
         };
         init_project(&dir, &session).expect("init");
         assert!(dir.join(".legamind").join("session.json").exists());

@@ -11,6 +11,7 @@ interface Props {
   onCreate: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  onPin: (id: string, pinned: boolean) => void;
 }
 
 export default function Sidebar(props: Props) {
@@ -99,9 +100,20 @@ export default function Sidebar(props: Props) {
               onClick={() => props.onSelect(session.id)}
             >
               <div class="session-title" title={session.title}>
+                {session.pinned ? "📌 " : ""}
                 {session.title}
               </div>
               <div class="session-actions">
+                <button
+                  class="icon-btn"
+                  title={session.pinned ? "Открепить" : "Закрепить"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onPin(session.id, !session.pinned);
+                  }}
+                >
+                  {session.pinned ? "📍" : "📌"}
+                </button>
                 <button
                   class="icon-btn"
                   title="Переименовать"

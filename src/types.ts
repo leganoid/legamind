@@ -10,6 +10,7 @@ export interface Session {
   mode: "chat" | "plan" | "build" | "review";
   trust: "read_only" | "workspace" | "full";
   reasoning: string | null;
+  pinned: boolean;
 }
 
 export interface MessageHitRow {
