@@ -365,6 +365,7 @@ export default function ChatView(props: Props) {
         tool: row.tool,
         path: row.path,
         summary: row.summary,
+        detail: row.output,
         ok: row.ok,
         status: "done",
       });
@@ -674,7 +675,11 @@ export default function ChatView(props: Props) {
         setToolsLive((prev) =>
           prev.map((item, index) =>
             index === prev.length - 1 && item.status === "running"
-              ? { ...item, status: "pending" }
+              ? {
+                  ...item,
+                  status: "pending",
+                  detail: event.payload.diff ?? event.payload.command ?? item.detail,
+                }
               : item,
           ),
         );
@@ -692,6 +697,7 @@ export default function ChatView(props: Props) {
             tool: event.payload.tool,
             path: event.payload.path,
             summary: null,
+            detail: null,
             ok: true,
             status: "running",
           },
@@ -718,6 +724,7 @@ export default function ChatView(props: Props) {
                   status: "done",
                   ok: event.payload.ok,
                   summary: event.payload.summary ?? item.summary,
+                  detail: event.payload.detail ?? item.detail,
                 }
               : item,
           );

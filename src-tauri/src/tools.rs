@@ -506,6 +506,15 @@ pub fn audit(action: &str, session_id: &str, detail: &str) {
     );
 }
 
+fn truncate_detail(text: &str) -> String {
+    let limit = 4000;
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(limit).collect();
+    format!("{cut}\n… (сокращено)")
+}
+
 /// Копирует файл в `.legamind/backups` перед изменением. Для новых файлов копии нет.
 pub fn make_backup(
     workdir: &Path,
@@ -713,6 +722,7 @@ pub struct ToolEventPayload {
     pub tool: String,
     pub path: Option<String>,
     pub summary: Option<String>,
+    pub detail: Option<String>,
     pub ok: bool,
 }
 
@@ -951,6 +961,7 @@ pub async fn execute_call(
             tool: tool.clone(),
             path: Some(path.clone()),
             summary: None,
+            detail: None,
             ok: true,
         },
     );
@@ -1184,6 +1195,7 @@ pub async fn execute_call(
             tool: tool.clone(),
             path: Some(path),
             summary: Some(summary),
+            detail: Some(truncate_detail(&output)),
             ok,
         },
     );

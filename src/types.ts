@@ -338,6 +338,7 @@ export interface ToolEventPayload {
   tool: string;
   path: string | null;
   summary: string | null;
+  detail: string | null;
   ok: boolean;
 }
 
@@ -374,6 +375,7 @@ export interface ToolActivity {
   tool: string;
   path: string | null;
   summary: string | null;
+  detail: string | null;
   ok: boolean;
   status: "running" | "pending" | "done";
 }
@@ -384,6 +386,7 @@ export interface MessageToolRow {
   path: string | null;
   ok: boolean;
   summary: string | null;
+  output: string | null;
 }
 
 export interface LocalModelRow {

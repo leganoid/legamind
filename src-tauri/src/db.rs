@@ -173,6 +173,7 @@ pub struct MessageToolRow {
     pub path: Option<String>,
     pub ok: bool,
     pub summary: Option<String>,
+    pub output: Option<String>,
 }
 
 /// Резервная копия файла перед изменением (для отмены).
@@ -1266,7 +1267,7 @@ impl Db {
     pub fn tool_runs_with_message(&self, session_id: &str) -> Result<Vec<MessageToolRow>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT message_id, tool, path, ok, summary FROM tool_runs
+            "SELECT message_id, tool, path, ok, summary, output FROM tool_runs
              WHERE session_id = ?1 AND message_id IS NOT NULL
              ORDER BY rowid ASC",
         )?;
@@ -1278,6 +1279,7 @@ impl Db {
                     path: row.get(2)?,
                     ok: row.get::<_, i64>(3)? != 0,
                     summary: row.get(4)?,
+                    output: row.get(5)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

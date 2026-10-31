@@ -95,6 +95,14 @@ export default function Message(props: Props) {
                 <Show when={item.status === "pending"}>
                   <span class="muted small">ждёт подтверждения</span>
                 </Show>
+                <Show when={item.detail}>
+                  <details class="tool-detail">
+                    <summary class="muted small">
+                      {item.tool === "run_command" ? "команда и вывод" : "подробности"}
+                    </summary>
+                    <pre>{item.detail}</pre>
+                  </details>
+                </Show>
               </div>
             )}
           </For>
