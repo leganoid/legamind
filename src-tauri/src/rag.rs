@@ -152,12 +152,15 @@ pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
             total_chunks += 1;
         }
     }
+    db.setting_set(
+        &index_key(root),
+        &chrono::Utc::now().to_rfc3339(),
+    )?;
     Ok(IndexStats {
         files: files.len(),
         chunks: total_chunks,
     })
 }
-
 /// Обновляет в индексе один файл (после записи/правки/удаления).
 pub fn reindex_file(db: &crate::db::Db, root: &Path, file: &Path) -> Result<()> {
     let root_key = root.to_string_lossy().to_string();
@@ -191,6 +194,58 @@ pub fn touch_file(db: &crate::db::Db, root: &Path, file: &Path) {
     if has_index {
         let _ = reindex_file(db, root, file);
     }
+}
+
+/// Ключ настройки с временем последней индексации конкретной папки.
+pub fn index_key(root: &Path) -> String {
+    format!("rag_indexed_at::{}", root.to_string_lossy())
+}
+
+/// Переиндексирует папку, если файлы менялись после последней индексации.
+pub fn refresh_if_stale(db: &crate::db::Db, root: &Path) -> Result<bool> {
+    let key = index_key(root);
+    let stamp = db.setting_get(&key)?;
+    let Some(stamp) = stamp else {
+        // Индекс мог быть построен старой версией без отметки времени — перестроим один раз.
+        let root_key = root.to_string_lossy().to_string();
+        let has_index = db
+            .rag_stats(&root_key)
+            .map(|stats| stats.chunks > 0)
+            .unwrap_or(false);
+        if has_index {
+            index_workdir(db, root)?;
+            return Ok(true);
+        }
+        return Ok(false);
+    };
+    let Ok(indexed_at) = chrono::DateTime::parse_from_rfc3339(&stamp) else {
+        return Ok(false);
+    };
+    let indexed_at = indexed_at.with_timezone(&chrono::Utc);
+
+    let mut files = Vec::new();
+    walk(root, root, &mut files, 0);
+    let mut newest: Option<chrono::DateTime<chrono::Utc>> = None;
+    for file in files {
+        let Ok(metadata) = std::fs::metadata(&file) else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        let modified: chrono::DateTime<chrono::Utc> = modified.into();
+        if newest.map(|current| modified > current).unwrap_or(true) {
+            newest = Some(modified);
+        }
+    }
+    let Some(newest) = newest else {
+        return Ok(false);
+    };
+    if newest <= indexed_at {
+        return Ok(false);
+    }
+    index_workdir(db, root)?;
+    Ok(true)
 }
 
 /// Блок релевантных фрагментов для system-промпта.
@@ -317,6 +372,31 @@ mod tests {
         reindex_file(&db, &dir, &file).expect("remove");
         assert!(db.rag_search(&root, "уникальное", 5).unwrap().is_empty());
         assert_eq!(db.rag_stats(&root).unwrap().files, 0);
+    }
+
+    #[test]
+    fn refresh_reindexes_stale_project() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("rag-stale");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.md");
+        std::fs::write(&file, "старое содержимое").unwrap();
+
+        let db = crate::db::Db::open_memory().unwrap();
+        index_workdir(&db, &dir).expect("index");
+        let root = dir.to_string_lossy().to_string();
+        assert!(db.rag_search(&root, "уникальное", 5).unwrap().is_empty());
+
+        db.setting_set(&index_key(&dir), "2000-01-01T00:00:00+00:00")
+            .unwrap();
+        std::fs::write(&file, "свежее уникальное содержимое").unwrap();
+
+        assert!(refresh_if_stale(&db, &dir).expect("refresh"));
+        assert!(!db.rag_search(&root, "уникальное", 5).unwrap().is_empty());
+        assert!(!refresh_if_stale(&db, &dir).expect("fresh"));
     }
 
     #[test]

@@ -568,6 +568,7 @@ async fn run_chat(
                         .map(|value| value != "0")
                         .unwrap_or(true);
                     if rag_enabled {
+                        let _ = crate::rag::refresh_if_stale(&state.db, &workdir_path);
                         if let Some(rag) =
                             crate::rag::context_block(&state.db, &workdir_path, &last_user, 5)
                         {
