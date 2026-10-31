@@ -43,6 +43,7 @@ export interface ModelInfo {
   thinks: boolean;
   context: number | null;
   efforts: string[];
+  role: "chat" | "embedding" | "rerank" | "image";
 }
 
 export interface ProviderView {
@@ -63,6 +64,7 @@ export interface ProviderModelRow {
   model_id: string;
   label: string | null;
   context: number | null;
+  role: "chat" | "embedding" | "rerank" | "image";
   updated_at: string;
 }
 

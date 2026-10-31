@@ -182,6 +182,8 @@ export const api = {
     invoke<void>("provider_set_enabled", { id, enabled }),
   providerDelete: (id: string) => invoke<void>("provider_delete", { id }),
   providerModels: (id: string) => invoke<ProviderModelRow[]>("provider_models", { id }),
+  providerModelRole: (providerId: string, modelId: string, role: string) =>
+    invoke<void>("provider_model_role", { providerId, modelId, role }),
 
   memoryAdd: (kind: string, text: string, sessionId?: string | null) =>
     invoke<MemoryRow>("memory_add", { kind, text, sessionId: sessionId ?? null }),

@@ -113,6 +113,29 @@ pub struct ModelInfo {
     pub context: Option<u32>,
     /// Уровни рассуждений от провайдера (например ["low","high","max"]).
     pub efforts: Vec<String>,
+    /// Роль: chat | embedding | rerank | image.
+    pub role: String,
+}
+
+/// Автоопределение роли по идентификатору модели.
+pub fn infer_role(model_id: &str) -> String {
+    let id = model_id.to_lowercase();
+    let embedding = [
+        "embed", "bge", "e5-", "gte-", "jina", "nomic", "voyage", "text-embedding",
+    ];
+    let rerank = ["rerank", "reranker", "cross-encoder"];
+    let image = [
+        "dall-e", "dalle", "imagen", "flux", "stable-diffusion", "sdxl", "midjourney",
+    ];
+    if rerank.iter().any(|marker| id.contains(marker)) {
+        "rerank".to_string()
+    } else if embedding.iter().any(|marker| id.contains(marker)) {
+        "embedding".to_string()
+    } else if image.iter().any(|marker| id.contains(marker)) {
+        "image".to_string()
+    } else {
+        "chat".to_string()
+    }
 }
 
 pub struct LocalDef {
@@ -148,6 +171,7 @@ pub fn local_models() -> Vec<ModelInfo> {
             thinks: m.thinks,
             context: Some(m.context_tokens),
             efforts: Vec::new(),
+            role: "chat".to_string(),
         })
         .collect()
 }
@@ -805,6 +829,15 @@ mod tests {
 
         let plain = cloud_messages_json(&[ChatMessage::new("user", "привет")]);
         assert!(plain[0]["content"].is_string());
+    }
+
+    #[test]
+    fn roles_are_inferred() {
+        assert_eq!(infer_role("text-embedding-3-small"), "embedding");
+        assert_eq!(infer_role("bge-m3"), "embedding");
+        assert_eq!(infer_role("bge-reranker-v2"), "rerank");
+        assert_eq!(infer_role("dall-e-3"), "image");
+        assert_eq!(infer_role("deepseek-flash"), "chat");
     }
 
     #[test]

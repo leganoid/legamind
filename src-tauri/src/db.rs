@@ -90,6 +90,8 @@ pub struct ProviderModelRow {
     pub context: Option<i64>,
     /// JSON-массив уровней рассуждений, которые рекламирует провайдер.
     pub efforts: Option<String>,
+    /// Роль модели: chat | embedding | rerank | image.
+    pub role: String,
     pub updated_at: String,
 }
 
@@ -674,6 +676,13 @@ impl Db {
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (14)", [])?;
         }
+
+        if current < 15 {
+            conn.execute_batch(
+                "ALTER TABLE provider_models ADD COLUMN role TEXT NOT NULL DEFAULT 'chat';",
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (15)", [])?;
+        }
         Ok(())
     }
 
@@ -1010,7 +1019,7 @@ impl Db {
     pub fn provider_model_get(&self, provider_id: &str, model_id: &str) -> Result<Option<ProviderModelRow>> {        let conn = self.conn();
         Ok(conn
             .query_row(
-                "SELECT provider_id, model_id, label, context, efforts, updated_at FROM provider_models
+                "SELECT provider_id, model_id, label, context, efforts, role, updated_at FROM provider_models
                  WHERE provider_id = ?1 AND model_id = ?2",
                 params![provider_id, model_id],
                 |row| {
@@ -1020,7 +1029,8 @@ impl Db {
                         label: row.get(2)?,
                         context: row.get(3)?,
                         efforts: row.get(4)?,
-                        updated_at: row.get(5)?,
+                        role: row.get(5)?,
+                        updated_at: row.get(6)?,
                     })
                 },
             )
@@ -1155,7 +1165,7 @@ impl Db {
     pub fn provider_models(&self, provider_id: &str) -> Result<Vec<ProviderModelRow>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT provider_id, model_id, label, context, efforts, updated_at FROM provider_models
+            "SELECT provider_id, model_id, label, context, efforts, role, updated_at FROM provider_models
              WHERE provider_id = ?1 ORDER BY model_id ASC",
         )?;
         let rows = stmt
@@ -1166,7 +1176,8 @@ impl Db {
                     label: row.get(2)?,
                     context: row.get(3)?,
                     efforts: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    role: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1176,7 +1187,7 @@ impl Db {
     pub fn provider_models_all(&self) -> Result<Vec<ProviderModelRow>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT provider_id, model_id, label, context, efforts, updated_at FROM provider_models
+            "SELECT provider_id, model_id, label, context, efforts, role, updated_at FROM provider_models
              ORDER BY provider_id, model_id",
         )?;
         let rows = stmt
@@ -1187,7 +1198,8 @@ impl Db {
                     label: row.get(2)?,
                     context: row.get(3)?,
                     efforts: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    role: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1205,12 +1217,35 @@ impl Db {
         let stamp = now();
         for (model_id, label, context, efforts) in models {
             tx.execute(
-                "INSERT INTO provider_models (provider_id, model_id, label, context, efforts, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![provider_id, model_id, label, context, efforts, stamp],
+                "INSERT INTO provider_models (provider_id, model_id, label, context, efforts, role, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    provider_id,
+                    model_id,
+                    label,
+                    context,
+                    efforts,
+                    crate::models::infer_role(model_id),
+                    stamp
+                ],
             )?;
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    pub fn provider_model_set_role(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+        role: &str,
+    ) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE provider_models SET role = ?3, updated_at = ?4
+             WHERE provider_id = ?1 AND model_id = ?2",
+            params![provider_id, model_id, role, now()],
+        )?;
         Ok(())
     }
 

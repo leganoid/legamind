@@ -1813,6 +1813,32 @@ label.inline {
   word-break: break-word;
 }
 
+.provider-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-top: 1px solid var(--border);
+}
+
+.provider-model-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.provider-models {
+  flex-basis: 100%;
+  margin-top: 6px;
+}
+
+.provider-models summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
 .tool-detail {
   flex-basis: 100%;
   margin-top: 4px;

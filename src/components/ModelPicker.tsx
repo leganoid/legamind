@@ -14,10 +14,12 @@ interface Props {
 export default function ModelPicker(props: Props) {
   let selectRef: HTMLSelectElement | undefined;
 
-  const local = createMemo(() => props.models.filter((m) => m.kind === "local"));
+  const local = createMemo(() =>
+    props.models.filter((m) => m.kind === "local" && m.role === "chat"),
+  );
   const groups = createMemo(() => {
     const map = new Map<string, ModelInfo[]>();
-    for (const model of props.models.filter((m) => m.kind === "cloud")) {
+    for (const model of props.models.filter((m) => m.kind === "cloud" && m.role === "chat")) {
       const list = map.get(model.provider) ?? [];
       list.push(model);
       map.set(model.provider, list);

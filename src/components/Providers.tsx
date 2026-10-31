@@ -1,6 +1,6 @@
 import { For, Show, createSignal } from "solid-js";
 import { api } from "../api";
-import type { CheckResult, ProviderView } from "../types";
+import type { CheckResult, ProviderModelRow, ProviderView } from "../types";
 
 interface Props {
   providers: ProviderView[];
@@ -36,6 +36,32 @@ export default function Providers(props: Props) {
   const [busy, setBusy] = createSignal(false);
   const [check, setCheck] = createSignal<CheckResult | null>(null);
   const [error, setError] = createSignal<string | null>(null);
+  const [providerModels, setProviderModels] = createSignal<Record<string, ProviderModelRow[]>>({});
+
+  const loadProviderModels = async (id: string) => {
+    try {
+      const list = await api.providerModels(id);
+      setProviderModels((prev) => ({ ...prev, [id]: list }));
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const setRole = async (providerId: string, modelId: string, role: string) => {
+    try {
+      await api.providerModelRole(providerId, modelId, role);
+      setProviderModels((prev) => ({
+        ...prev,
+        [providerId]: (prev[providerId] ?? []).map((model) =>
+          model.model_id === modelId
+            ? { ...model, role: role as ProviderModelRow["role"] }
+            : model,
+        ),
+      }));
+    } catch (err) {
+      setError(String(err));
+    }
+  };
 
   const resetForm = () => {
     setEditingId(null);
@@ -265,6 +291,39 @@ export default function Providers(props: Props) {
                   Удалить
                 </button>
               </div>
+              <details
+                class="provider-models"
+                onToggle={(event) => {
+                  if (event.currentTarget.open) void loadProviderModels(provider.id);
+                }}
+              >
+                <summary class="muted small">Модели и их роли ({provider.models_count})</summary>
+                <Show
+                  when={(providerModels()[provider.id] ?? []).length > 0}
+                  fallback={<p class="muted small">Список пуст — нажмите «Обновить модели».</p>}
+                >
+                  <For each={providerModels()[provider.id] ?? []}>
+                    {(model) => (
+                      <div class="provider-model-row">
+                        <span class="provider-model-id" title={model.model_id}>
+                          {model.label ?? model.model_id}
+                        </span>
+                        <select
+                          value={model.role}
+                          onChange={(event) =>
+                            void setRole(provider.id, model.model_id, event.currentTarget.value)
+                          }
+                        >
+                          <option value="chat">чат</option>
+                          <option value="embedding">эмбеддинги</option>
+                          <option value="rerank">реранкер</option>
+                          <option value="image">изображения</option>
+                        </select>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </details>
             </section>
           )}
         </For>

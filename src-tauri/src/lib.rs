@@ -413,6 +413,7 @@ pub fn run() {
             engine_restart,
             providers::models_list,
             providers::engine_stats,
+            providers::provider_model_role,
             providers::providers_list,
             providers::provider_save,
             providers::provider_check,

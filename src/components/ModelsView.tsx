@@ -9,8 +9,18 @@ interface Props {
   onModelsChanged: () => void;
 }
 
-export default function ModelsView(props: Props) {
-  const [busy, setBusy] = createSignal<string | null>(null);
+const ROLE_LABELS: Record<string, string> = {
+  chat: "чат",
+  embedding: "эмбеддинги",
+  rerank: "реранкер",
+  image: "изображения",
+};
+
+function roleLabel(role: string) {
+  return ROLE_LABELS[role] ?? role;
+}
+
+export default function ModelsView(props: Props) {  const [busy, setBusy] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
   const [custom, setCustom] = createSignal<LocalModelRow[]>([]);
@@ -305,6 +315,8 @@ export default function ModelsView(props: Props) {
               <h3>{model.label}</h3>
               <p class="muted small">
                 {props.providerLabels[model.provider] ?? model.provider} · {model.id}
+                {" · "}
+                {roleLabel(model.role)}
               </p>
             </section>
           )}

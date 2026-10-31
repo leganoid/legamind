@@ -357,6 +357,23 @@ pub async fn engine_stats(state: State<'_, AppState>) -> Result<EngineStats, Str
     })
 }
 
+#[tauri::command]
+pub async fn provider_model_role(
+    state: State<'_, AppState>,
+    provider_id: String,
+    model_id: String,
+    role: String,
+) -> Result<(), String> {
+    let role = role.trim().to_lowercase();
+    if !["chat", "embedding", "rerank", "image"].contains(&role.as_str()) {
+        return Err("Неизвестная роль модели".into());
+    }
+    state
+        .db
+        .provider_model_set_role(&provider_id, &model_id, &role)
+        .map_err(|e| e.to_string())
+}
+
 /// Полный список моделей: локальные + модели включённых провайдеров.
 #[tauri::command]
 pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, String> {
@@ -400,6 +417,7 @@ pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, S
                             .and_then(|v| v.as_u64())
                             .map(|v| v as u32),
                         efforts: Vec::new(),
+                        role: "chat".to_string(),
                     });
                 }
                 if !built.is_empty() {
@@ -430,6 +448,11 @@ pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, S
                     .as_deref()
                     .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
                     .unwrap_or_default(),
+                role: if item.role.is_empty() {
+                    crate::models::infer_role(&item.model_id)
+                } else {
+                    item.role.clone()
+                },
             });
         }
     }
