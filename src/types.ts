@@ -406,6 +406,12 @@ export interface LogTail {
   size: number;
 }
 
+export interface EngineStats {
+  loaded: string[];
+  rss_mb: number | null;
+  models: number;
+}
+
 export interface ChatErrorPayload {
   request_id: string;
   session_id: string;

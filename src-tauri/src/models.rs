@@ -182,6 +182,25 @@ fn split_model(model_id: &str) -> Result<(&str, &str)> {
         .ok_or_else(|| anyhow!("Некорректный идентификатор модели: {model_id}"))
 }
 
+fn retryable_provider_error(err: &anyhow::Error) -> bool {
+    let text = err.to_string().to_lowercase();
+    [
+        "timeout",
+        "timed out",
+        "connect",
+        "network",
+        "unavailable",
+        "overloaded",
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker))
+}
+
 impl Router<'_> {
     pub async fn stream(
         &self,
@@ -194,10 +213,83 @@ impl Router<'_> {
     ) -> Result<ChatOutcome> {
         let (provider, model) = split_model(model_id)?;
         if provider == LOCAL_PREFIX {
-            self.stream_local(model, messages, params, cancel, on_delta, on_status).await
-        } else {
-            self.stream_cloud(provider, model, messages, params, cancel, on_delta, on_status).await
+            return self.stream_local(model, messages, params, cancel, on_delta, on_status).await;
         }
+
+        let mut emitted = 0usize;
+        let result = {
+            let mut counting = |text: &str| {
+                emitted += 1;
+                on_delta(text);
+            };
+            self.stream_cloud(provider, model, messages, params, cancel, &mut counting, on_status)
+                .await
+        };
+        if let Err(err) = &result {
+            if emitted == 0 && retryable_provider_error(err) {
+                if let Some((fallback_id, fallback_label)) = self.pick_fallback(model_id) {
+                    on_status(&ChatStatus {
+                        phase: "fallback".to_string(),
+                        label: Some(format!("Резерв: {fallback_label}")),
+                        device: None,
+                        seconds: None,
+                    });
+                    let _ = crate::logging::log_line(
+                        "app.log",
+                        &format!(
+                            "provider fallback: {model_id} → {fallback_id} ({err})"
+                        ),
+                    );
+                    if let Ok((alt_provider, alt_model)) = split_model(&fallback_id) {
+                        return self
+                            .stream_cloud(
+                                alt_provider,
+                                alt_model,
+                                messages,
+                                params,
+                                cancel,
+                                on_delta,
+                                on_status,
+                            )
+                            .await;
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    /// Резервная облачная модель: сначала другой включённый провайдер, затем другая модель того же.
+    fn pick_fallback(&self, current: &str) -> Option<(String, String)> {
+        let current_provider = current.split('/').next().unwrap_or("");
+        let providers = self.state.db.providers_list().ok()?;
+        let models = self.state.db.provider_models_all().ok()?;
+        for provider in providers
+            .iter()
+            .filter(|provider| provider.enabled && provider.id != current_provider)
+        {
+            if let Some(model) = models.iter().find(|model| model.provider_id == provider.id) {
+                let id = format!("{}/{}", provider.id, model.model_id);
+                let label = format!(
+                    "{} · {}",
+                    provider.label,
+                    model.label.clone().unwrap_or_else(|| model.model_id.clone())
+                );
+                return Some((id, label));
+            }
+        }
+        for model in models.iter().filter(|model| {
+            model.provider_id == current_provider
+                && format!("{}/{}", model.provider_id, model.model_id) != current
+        }) {
+            let id = format!("{}/{}", model.provider_id, model.model_id);
+            let label = model
+                .label
+                .clone()
+                .unwrap_or_else(|| model.model_id.clone());
+            return Some((id, label));
+        }
+        None
     }
 
     // ------------------------------------------------------------------ локальные

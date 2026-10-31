@@ -1,6 +1,6 @@
-import { For, Show, createSignal, onMount } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { api } from "../api";
-import type { LocalModelRow, ModelInfo } from "../types";
+import type { EngineStats, LocalModelRow, ModelInfo } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
 
 interface Props {
@@ -20,6 +20,21 @@ export default function ModelsView(props: Props) {
   const [modelTokens, setModelTokens] = createSignal(2048);
   const [modelThinks, setModelThinks] = createSignal(false);
   const [removeTarget, setRemoveTarget] = createSignal<LocalModelRow | null>(null);
+  const [stats, setStats] = createSignal<EngineStats | null>(null);
+
+  const loadStats = async () => {
+    try {
+      setStats(await api.engineStats());
+    } catch {
+      setStats(null);
+    }
+  };
+
+  onMount(() => {
+    void loadStats();
+    const timer = window.setInterval(() => void loadStats(), 5000);
+    onCleanup(() => window.clearInterval(timer));
+  });
 
   const loadCustom = async () => {
     try {
@@ -143,6 +158,23 @@ export default function ModelsView(props: Props) {
         <div class="banner info">{notice()}</div>
       </Show>
 
+      <Show when={stats()}>
+        <div class="card">
+          <div class="row space-between">
+            <strong>Движок</strong>
+            <span class="muted small">
+              {stats()!.rss_mb ? `${stats()!.rss_mb!.toFixed(1)} МБ RSS` : "RSS недоступен"} ·
+              моделей в реестре: {stats()!.models}
+            </span>
+          </div>
+          <p class="muted small">
+            {stats()!.loaded.length > 0
+              ? `Загружено: ${stats()!.loaded.join(", ")}`
+              : "Сейчас ни одна модель не загружена"}
+          </p>
+        </div>
+      </Show>
+
       <section class="card form">
         <h2>Добавить локальную модель</h2>
         <p class="muted small">
@@ -241,6 +273,7 @@ export default function ModelsView(props: Props) {
               <h3>{model.label}</h3>
               <p class="muted small">
                 {model.device} · {model.size_gb?.toFixed(2)} ГБ
+                {model.context ? ` · контекст ${model.context} ток.` : ""}
                 {model.thinks ? " · умеет рассуждать" : ""}
               </p>
               <p classList={{ badge: true, on: model.loaded, off: !model.loaded }}>

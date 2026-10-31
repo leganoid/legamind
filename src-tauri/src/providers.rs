@@ -320,26 +320,96 @@ pub async fn provider_models(state: State<'_, AppState>, id: String) -> Result<V
     state.db.provider_models(&id).map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct EngineStats {
+    pub loaded: Vec<String>,
+    pub rss_mb: Option<f64>,
+    pub models: usize,
+}
+
+#[tauri::command]
+pub async fn engine_stats(state: State<'_, AppState>) -> Result<EngineStats, String> {
+    let port = crate::sidecar::port_if_ready(&state)
+        .await
+        .ok_or_else(|| "Движок ещё не готов".to_string())?;
+    let url = format!("http://127.0.0.1:{port}/stats");
+    let resp = state
+        .client
+        .get(url)
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(EngineStats {
+        loaded: value
+            .get("loaded")
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        rss_mb: value.get("rss_mb").and_then(|v| v.as_f64()),
+        models: value.get("models").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+    })
+}
+
 /// Полный список моделей: локальные + модели включённых провайдеров.
 #[tauri::command]
 pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, String> {
-    let mut models = crate::models::local_models();
+    let mut engine_models: Option<Vec<ModelInfo>> = None;
 
-    // Статус «загружена» берём у сайдкара, если он уже работает.
+    // Если движок готов — берём локальные модели из него (включая добавленные вручную).
     if let Some(port) = crate::sidecar::port_if_ready(&state).await {
         let url = format!("http://127.0.0.1:{port}/models");
         if let Ok(resp) = state.client.get(url).timeout(Duration::from_secs(2)).send().await {
             if let Ok(list) = resp.json::<Vec<Value>>().await {
+                let mut built = Vec::new();
                 for item in list {
                     let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    let loaded = item.get("loaded").and_then(|v| v.as_bool()).unwrap_or(false);
-                    if let Some(model) = models.iter_mut().find(|m| m.id == format!("local/{id}")) {
-                        model.loaded = loaded;
+                    if id.is_empty() {
+                        continue;
                     }
+                    built.push(ModelInfo {
+                        id: format!("local/{id}"),
+                        label: item
+                            .get("label")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(id)
+                            .to_string(),
+                        provider: "local".to_string(),
+                        kind: "local".to_string(),
+                        device: item
+                            .get("device")
+                            .and_then(|v| v.as_str())
+                            .map(|v| v.to_string()),
+                        size_gb: item.get("size_gb").and_then(|v| v.as_f64()),
+                        loaded: item
+                            .get("loaded")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        thinks: item
+                            .get("thinks")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        context: item
+                            .get("max_tokens")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u32),
+                        efforts: Vec::new(),
+                    });
+                }
+                if !built.is_empty() {
+                    engine_models = Some(built);
                 }
             }
         }
     }
+
+    let mut models = engine_models.unwrap_or_else(crate::models::local_models);
 
     let providers = state.db.providers_list().map_err(|e| e.to_string())?;
     let provider_models = state.db.provider_models_all().map_err(|e| e.to_string())?;

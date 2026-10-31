@@ -50,6 +50,45 @@ class EmbeddingsRequest(BaseModel):
     texts: list[str] = Field(default_factory=list)
 
 
+def _rss_mb() -> float | None:
+    """Текущий RSS процесса без внешних зависимостей (Windows psapi)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class ProcessMemoryCounters(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        counters = ProcessMemoryCounters()
+        counters.cb = ctypes.sizeof(counters)
+        kernel32 = ctypes.windll.kernel32
+        psapi = ctypes.windll.psapi
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        psapi.GetProcessMemoryInfo.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(ProcessMemoryCounters),
+            wintypes.DWORD,
+        ]
+        psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+        process = kernel32.GetCurrentProcess()
+        if psapi.GetProcessMemoryInfo(process, ctypes.byref(counters), counters.cb):
+            return round(counters.WorkingSetSize / (1024 * 1024), 1)
+    except Exception:
+        return None
+    return None
+
+
 def create_app(registry: Registry) -> FastAPI:
     app = FastAPI(title="legamind-engine", docs_url=None, redoc_url=None)
     manager = ModelManager(registry)
@@ -66,6 +105,15 @@ def create_app(registry: Registry) -> FastAPI:
     @app.get("/models")
     async def models() -> list[dict[str, Any]]:
         return registry.as_list(set(manager.loaded_ids()))
+
+    @app.get("/stats")
+    async def stats() -> dict[str, Any]:
+        """Память процесса движка и загруженные модели (для статуса в UI)."""
+        return {
+            "loaded": sorted(manager.loaded_ids()),
+            "rss_mb": _rss_mb(),
+            "models": len(registry.models),
+        }
 
     @app.post("/models/load")
     async def models_load(body: ModelIdRequest) -> dict[str, Any]:

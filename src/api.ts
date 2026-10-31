@@ -15,6 +15,7 @@ import type {
   DebateRow,
   DebateStartResult,
   EditStart,
+  EngineStats,
   ExtractedItem,
   FeedbackRow,
   FinetuneStatus,
@@ -147,6 +148,7 @@ export const api = {
   localModelRemove: (id: string) => invoke<void>("local_model_remove", { id }),
   logsTail: (name: string, lines = 400) =>
     invoke<LogTail>("logs_tail", { name, lines }),
+  engineStats: () => invoke<EngineStats>("engine_stats"),
   watchWorkdir: (sessionId: string) => invoke<string>("watch_workdir", { sessionId }),
   unwatchWorkdir: () => invoke<void>("unwatch_workdir"),
 

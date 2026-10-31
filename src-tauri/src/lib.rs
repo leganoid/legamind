@@ -401,6 +401,7 @@ pub fn run() {
             models_unload,
             engine_restart,
             providers::models_list,
+            providers::engine_stats,
             providers::providers_list,
             providers::provider_save,
             providers::provider_check,
