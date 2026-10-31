@@ -1,5 +1,6 @@
 //! Наблюдение за рабочей папкой: автоматическая переиндексация RAG после изменений.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
@@ -41,9 +42,10 @@ pub fn is_relevant(path: &Path) -> bool {
     true
 }
 
-fn spawn_debounce(app: AppHandle, rx: Receiver<()>, root: PathBuf) {
+fn spawn_debounce(app: AppHandle, rx: Receiver<Vec<PathBuf>>, root: PathBuf) {
     std::thread::spawn(move || {
-        while rx.recv().is_ok() {
+        while let Ok(first) = rx.recv() {
+            let mut changed: HashSet<PathBuf> = first.into_iter().collect();
             let deadline = Instant::now() + Duration::from_millis(DEBOUNCE_MS);
             loop {
                 let now = Instant::now();
@@ -51,7 +53,9 @@ fn spawn_debounce(app: AppHandle, rx: Receiver<()>, root: PathBuf) {
                     break;
                 }
                 match rx.recv_timeout(deadline - now) {
-                    Ok(()) => {}
+                    Ok(paths) => {
+                        changed.extend(paths);
+                    }
                     Err(RecvTimeoutError::Timeout) => break,
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
@@ -67,15 +71,43 @@ fn spawn_debounce(app: AppHandle, rx: Receiver<()>, root: PathBuf) {
             if !has_index {
                 continue;
             }
-            match crate::rag::index_workdir(&state.db, &root) {
-                Ok(stats) => {
-                    let _ = app.emit(
-                        "rag:indexed",
-                        RagIndexedPayload {
-                            chunks: stats.chunks,
-                            files: stats.files,
-                        },
+
+            // Точечно переиндексируем изменённые файлы; папки и удаления — полный проход.
+            let mut full = false;
+            for path in &changed {
+                if path.is_dir() {
+                    full = true;
+                    break;
+                }
+                if path.exists() && !crate::rag::is_indexable(path) {
+                    continue;
+                }
+                if !path.exists() && path.extension().is_none() {
+                    full = true;
+                    break;
+                }
+                if let Err(err) = crate::rag::reindex_file(&state.db, &root, path) {
+                    let _ = crate::logging::log_line(
+                        "app.log",
+                        &format!("watcher reindex file failed: {err}"),
                     );
+                    full = true;
+                    break;
+                }
+            }
+
+            let stats = if full {
+                crate::rag::index_workdir(&state.db, &root)
+                    .map(|stats| (stats.chunks as usize, stats.files as usize))
+            } else {
+                state
+                    .db
+                    .rag_stats(&root_key)
+                    .map(|stats| (stats.chunks as usize, stats.files as usize))
+            };
+            match stats {
+                Ok((chunks, files)) => {
+                    let _ = app.emit("rag:indexed", RagIndexedPayload { chunks, files });
                 }
                 Err(err) => {
                     let _ = crate::logging::log_line(
@@ -108,11 +140,16 @@ pub async fn watch_workdir(
     // Останавливаем предыдущий watcher (его поток завершится сам).
     *state.watcher.lock().unwrap() = None;
 
-    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<PathBuf>>();
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
         if let Ok(event) = result {
-            if event.paths.iter().any(|path| is_relevant(path)) {
-                let _ = tx.send(());
+            let paths: Vec<PathBuf> = event
+                .paths
+                .into_iter()
+                .filter(|path| is_relevant(path))
+                .collect();
+            if !paths.is_empty() {
+                let _ = tx.send(paths);
             }
         }
     })

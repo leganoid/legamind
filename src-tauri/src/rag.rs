@@ -100,7 +100,23 @@ fn is_text_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn walk(root: &Path, current: &Path, out: &mut Vec<PathBuf>, depth: usize) {
+fn gitignore_for(root: &Path) -> Option<ignore::gitignore::Gitignore> {
+    let file = root.join(".gitignore");
+    if !file.is_file() {
+        return None;
+    }
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
+    builder.add(file);
+    builder.build().ok()
+}
+
+fn walk(
+    root: &Path,
+    current: &Path,
+    out: &mut Vec<PathBuf>,
+    depth: usize,
+    matcher: Option<&ignore::gitignore::Gitignore>,
+) {
     if depth > 8 || out.len() >= MAX_FILES {
         return;
     }
@@ -115,12 +131,21 @@ fn walk(root: &Path, current: &Path, out: &mut Vec<PathBuf>, depth: usize) {
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
+        let relative = path.strip_prefix(root).unwrap_or(&path);
+        if let Some(matcher) = matcher {
+            if matcher
+                .matched_path_or_any_parents(relative, file_type.is_dir())
+                .is_ignore()
+            {
+                continue;
+            }
+        }
         if file_type.is_dir() {
             let name = entry.file_name().to_string_lossy().to_string();
             if SKIP_DIRS.contains(&name.as_str()) {
                 continue;
             }
-            walk(root, &path, out, depth + 1);
+            walk(root, &path, out, depth + 1, matcher);
         } else if file_type.is_file() {
             if !is_text_file(&path) {
                 continue;
@@ -134,13 +159,28 @@ fn walk(root: &Path, current: &Path, out: &mut Vec<PathBuf>, depth: usize) {
     }
 }
 
+/// Подходит ли файл для индексации (текст, размер в пределах лимита).
+pub fn is_indexable(path: &Path) -> bool {
+    if !path.is_file() || !is_text_file(path) {
+        return false;
+    }
+    let size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    size > 0 && size <= MAX_FILE_BYTES
+}
+
+pub fn collect_files(root: &Path) -> Vec<PathBuf> {
+    let matcher = gitignore_for(root);
+    let mut files = Vec::new();
+    walk(root, root, &mut files, 0, matcher.as_ref());
+    files.sort();
+    files
+}
+
 /// Полностью переиндексирует рабочую папку.
 pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
     let root_key = root.to_string_lossy().to_string();
     db.rag_clear(&root_key)?;
-    let mut files = Vec::new();
-    walk(root, root, &mut files, 0);
-    files.sort();
+    let files = collect_files(root);
 
     let mut total_chunks = 0usize;
     for file in files.iter() {
@@ -234,8 +274,7 @@ pub fn refresh_if_stale(db: &crate::db::Db, root: &Path) -> Result<bool> {
     };
     let indexed_at = indexed_at.with_timezone(&chrono::Utc);
 
-    let mut files = Vec::new();
-    walk(root, root, &mut files, 0);
+    let files = collect_files(root);
     let mut newest: Option<chrono::DateTime<chrono::Utc>> = None;
     for file in files {
         let Ok(metadata) = std::fs::metadata(&file) else {
@@ -347,6 +386,30 @@ pub async fn rag_set_enabled(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn respects_gitignore() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("gitignore");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("build")).unwrap();
+        std::fs::write(dir.join(".gitignore"), "secret.txt\nbuild/\n").unwrap();
+        std::fs::write(dir.join("keep.md"), "ok").unwrap();
+        std::fs::write(dir.join("secret.txt"), "no").unwrap();
+        std::fs::write(dir.join("build").join("gen.md"), "no").unwrap();
+
+        let files = collect_files(&dir);
+        let names: Vec<String> = files
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(names.contains(&"keep.md".to_string()));
+        assert!(!names.contains(&"secret.txt".to_string()));
+        assert!(!names.contains(&"gen.md".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn chunks_respect_size_and_overlap() {
