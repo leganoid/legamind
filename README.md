@@ -3,6 +3,9 @@
 Нативное десктопное приложение для работы с локальными (OpenVINO) и облачными моделями.
 Tauri v2 (Rust) + SolidJS + Python-сайдкар `legamind-engine`.
 
+Подробная инструкция для пользователя: [USER_GUIDE.md](USER_GUIDE.md).
+Подготовка к раздаче: [DISTRIBUTION.md](DISTRIBUTION.md). Приватность: [PRIVACY.md](PRIVACY.md).
+
 ## Что уже работает
 
 | Блок | Состояние |
