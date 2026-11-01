@@ -3,13 +3,19 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSCommandPath
-$python = if ($env:LEGAMIND_PYTHON) { $env:LEGAMIND_PYTHON } else { "$env:LOCALAPPDATA\venvs\ai\Scripts\python.exe" }
+if ($env:LEGAMIND_PYTHON) {
+    $python = $env:LEGAMIND_PYTHON
+    if (-not (Get-Command $python -ErrorAction SilentlyContinue) -and -not (Test-Path $python)) {
+        throw "Python не найден: $python"
+    }
+} else {
+    $python = "$env:LOCALAPPDATA\venvs\ai\Scripts\python.exe"
+    if (-not (Test-Path $python)) {
+        throw "Python venv не найден: $python"
+    }
+}
 $dist = Join-Path $root "sidecar-dist\legamind-engine"
 $work = Join-Path $root ".tools\pyinstaller-work"
-
-if (-not (Test-Path $python)) {
-    throw "Python venv не найден: $python"
-}
 
 Remove-Item $dist -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
