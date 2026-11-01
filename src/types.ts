@@ -422,6 +422,40 @@ export interface SelfCheckItem {
   detail: string;
 }
 
+export interface ModelInspection {
+  path: string;
+  label: string;
+  size_gb: number;
+  has_xml: boolean;
+  has_bin: boolean;
+  has_tokenizer: boolean;
+  context_tokens: number | null;
+}
+
+export interface HfFile {
+  path: string;
+  size: number;
+}
+
+export interface HfPreview {
+  repo: string;
+  files: HfFile[];
+  total_bytes: number;
+  ir_ready: boolean;
+  tokenizer_ready: boolean;
+  label: string;
+}
+
+export interface ModelDownloadEvent {
+  repo: string;
+  file: string;
+  downloaded: number;
+  total: number;
+  file_index: number;
+  file_count: number;
+  done: boolean;
+}
+
 export interface PickedAttachment {
   name: string;
   path: string;

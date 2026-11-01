@@ -22,6 +22,7 @@ pub mod logs;
 pub mod attachments;
 pub mod export;
 pub mod health;
+pub mod model_import;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -383,6 +384,9 @@ pub fn run() {
             local_models::local_models_list,
             local_models::local_model_add,
             local_models::local_model_remove,
+            model_import::inspect_local_model,
+            model_import::hf_model_preview,
+            model_import::hf_model_download,
             logs::logs_tail,
             attachments::pick_text_attachment,
             export::export_all,

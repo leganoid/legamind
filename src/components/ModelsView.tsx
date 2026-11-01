@@ -2,6 +2,7 @@ import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { api } from "../api";
 import type { EngineStats, LocalModelRow, ModelInfo } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
+import ModelImport from "./ModelImport";
 
 interface Props {
   models: ModelInfo[];
@@ -20,7 +21,9 @@ function roleLabel(role: string) {
   return ROLE_LABELS[role] ?? role;
 }
 
-export default function ModelsView(props: Props) {  const [busy, setBusy] = createSignal<string | null>(null);
+export default function ModelsView(props: Props) {
+  const [busy, setBusy] = createSignal<string | null>(null);
+  const [showImport, setShowImport] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
   const [custom, setCustom] = createSignal<LocalModelRow[]>([]);
@@ -186,7 +189,12 @@ export default function ModelsView(props: Props) {  const [busy, setBusy] = crea
       </Show>
 
       <section class="card form">
-        <h2>Добавить локальную модель</h2>
+        <div class="row space-between">
+          <h2>Добавить локальную модель</h2>
+          <button class="btn primary" onClick={() => setShowImport(true)}>
+            📥 Мастер импорта
+          </button>
+        </div>
         <p class="muted small">
           Укажите папку с OpenVINO IR (файлы <code>.xml</code> и <code>.bin</code>). Модель
           сохранится в конфиге движка; после добавления он перезапустится. Файлы модели не
@@ -338,6 +346,17 @@ export default function ModelsView(props: Props) {  const [busy, setBusy] = crea
         onConfirm={() => void removeModel()}
         onCancel={() => setRemoveTarget(null)}
       />
+      <Show when={showImport()}>
+        <ModelImport
+          onClose={() => setShowImport(false)}
+          onImported={() => {
+            setShowImport(false);
+            setNotice("Модель добавлена в конфиг движка");
+            void loadCustom();
+            props.onModelsChanged();
+          }}
+        />
+      </Show>
     </div>
   );
 }

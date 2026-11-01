@@ -22,6 +22,8 @@ import type {
   LessonRow,
   LocalModelRow,
   LogTail,
+  ModelInspection,
+  HfPreview,
   MemoryRow,
   MessageHitRow,
   MessageToolRow,
@@ -159,6 +161,10 @@ export const api = {
     thinks?: boolean;
   }) => invoke<LocalModelRow>("local_model_add", { input }),
   localModelRemove: (id: string) => invoke<void>("local_model_remove", { id }),
+  inspectLocalModel: (path: string) =>
+    invoke<ModelInspection>("inspect_local_model", { path }),
+  hfModelPreview: (repo: string) => invoke<HfPreview>("hf_model_preview", { repo }),
+  hfModelDownload: (repo: string) => invoke<string>("hf_model_download", { repo }),
   logsTail: (name: string, lines = 400) =>
     invoke<LogTail>("logs_tail", { name, lines }),
   engineStats: () => invoke<EngineStats>("engine_stats"),
