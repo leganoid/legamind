@@ -425,9 +425,30 @@ pub async fn rag_embed_project(
         .map_err(|e| e.to_string())
 }
 
+/// Запускает фоновую векторизацию после watcher-индексации.
+pub fn spawn_auto_embed(app: tauri::AppHandle, root: String) {
+    use tauri::Manager;
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        if embedding_model(&state.db).is_none() {
+            return;
+        }
+        match embed_project_root(&state, &root).await {
+            Ok(stats) => {
+                let _ = crate::logging::log_line(
+                    "app.log",
+                    &format!("auto vectors: {} / {} ({})", stats.embedded, stats.total, stats.model),
+                );
+            }
+            Err(err) => {
+                let _ = crate::logging::log_line("app.log", &format!("auto vectors failed: {err}"));
+            }
+        }
+    });
+}
+
 /// Векторизует все чанки проекта выбранной моделью эмбеддингов.
-pub async fn embed_project_root(state: &AppState, root: &str) -> Result<EmbedStats> {
-    let model = embedding_model(&state.db)
+pub async fn embed_project_root(state: &AppState, root: &str) -> Result<EmbedStats> {    let model = embedding_model(&state.db)
         .ok_or_else(|| anyhow::anyhow!("Выберите модель эмбеддингов в настройках"))?;
     let root_key = root.to_string();
     let mut embedded = 0usize;
@@ -566,6 +587,11 @@ pub async fn rag_reindex(
         .workdir
         .ok_or_else(|| "У сессии не задана рабочая папка".to_string())?;
     let stats = index_workdir(&state.db, Path::new(&workdir)).map_err(|e| e.to_string())?;
+    if embedding_model(&state.db).is_some() {
+        if let Err(err) = embed_project_root(&state, &workdir).await {
+            let _ = crate::logging::log_line("app.log", &format!("auto vectors failed: {err}"));
+        }
+    }
     let _ = crate::logging::log_line(
         "app.log",
         &format!(

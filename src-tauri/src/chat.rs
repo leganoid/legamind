@@ -1325,7 +1325,24 @@ pub async fn chat_command(
         ));
     }
 
-    if let Some(result) = local_command(&state.db, &state.data_dir, &session_id, &cmd, &args)? {
+    if let Some(mut result) = local_command(&state.db, &state.data_dir, &session_id, &cmd, &args)? {
+        if (cmd == "index" || cmd == "reindex") && crate::rag::embedding_model(&state.db).is_some() {
+            if let Some(workdir) = state
+                .db
+                .session_get(&session_id)
+                .ok()
+                .flatten()
+                .and_then(|session| session.workdir)
+            {
+                match crate::rag::embed_project_root(&state, &workdir).await {
+                    Ok(stats) => result.text.push_str(&format!(
+                        "\nВекторы: {} из {} · {}",
+                        stats.embedded, stats.total, stats.model
+                    )),
+                    Err(err) => result.text.push_str(&format!("\nВекторы: ошибка — {err}")),
+                }
+            }
+        }
         return Ok(result);
     }
 

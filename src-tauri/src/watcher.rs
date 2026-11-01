@@ -108,6 +108,7 @@ fn spawn_debounce(app: AppHandle, rx: Receiver<Vec<PathBuf>>, root: PathBuf) {
             match stats {
                 Ok((chunks, files)) => {
                     let _ = app.emit("rag:indexed", RagIndexedPayload { chunks, files });
+                    crate::rag::spawn_auto_embed(app.clone(), root_key.clone());
                 }
                 Err(err) => {
                     let _ = crate::logging::log_line(

@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSCommandPath
-$python = "$env:LOCALAPPDATA\venvs\ai\Scripts\python.exe"
+$python = if ($env:LEGAMIND_PYTHON) { $env:LEGAMIND_PYTHON } else { "$env:LOCALAPPDATA\venvs\ai\Scripts\python.exe" }
 $dist = Join-Path $root "sidecar-dist\legamind-engine"
 $work = Join-Path $root ".tools\pyinstaller-work"
 
