@@ -1,0 +1,62 @@
+﻿[
+    {
+        "step":  "Подготовка сессии и проекта",
+        "ok":  true,
+        "detail":  "session=86c329fc-fc85-46c4-93ea-a2d229826e1a"
+    },
+    {
+        "step":  "Запуск приложения",
+        "ok":  true,
+        "detail":  "pid=21872"
+    },
+    {
+        "step":  "Композер доступен (тур закрыт)",
+        "ok":  true,
+        "detail":  ""
+    },
+    {
+        "step":  "Запись файла с подтверждением",
+        "ok":  true,
+        "detail":  "approved=True content=E2E_WRITE_111"
+    },
+    {
+        "step":  "Разрешение сохранено",
+        "ok":  true,
+        "detail":  "permissions=write"
+    },
+    {
+        "step":  "Вызов инструмента привязан к сообщению",
+        "ok":  true,
+        "detail":  "last_tool=write_file"
+    },
+    {
+        "step":  "RAG-индексация проекта",
+        "ok":  true,
+        "detail":  "chunks=2 rag_token_chunks=1"
+    },
+    {
+        "step":  "Ответ по RAG",
+        "ok":  true,
+        "detail":  "assistant=E2E_RAG_TOKEN_246"
+    },
+    {
+        "step":  "Перезапуск приложения",
+        "ok":  true,
+        "detail":  "pid=15008"
+    },
+    {
+        "step":  "История сохранилась",
+        "ok":  true,
+        "detail":  "messages=4"
+    },
+    {
+        "step":  "Запись после перезапуска без модалки",
+        "ok":  true,
+        "detail":  "modal=False content=E2E_WRITE_222"
+    },
+    {
+        "step":  "Самопроверка",
+        "ok":  true,
+        "detail":  "schema_found=True rag_found=True"
+    }
+]
