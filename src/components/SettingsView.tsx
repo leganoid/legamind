@@ -1,6 +1,6 @@
 import { For, Show, createSignal, onMount } from "solid-js";
 import { api } from "../api";
-import type { AppInfo, BackupInfo, LogTail, SelfCheckItem, WebConfigView, WebTestResult } from "../types";
+import type { AppInfo, BackupInfo, LocalModelRow, LogTail, SelfCheckItem, WebConfigView, WebTestResult } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function SettingsView() {
@@ -29,6 +29,26 @@ export default function SettingsView() {
   const [logBusy, setLogBusy] = createSignal(false);
   const [checks, setChecks] = createSignal<SelfCheckItem[]>([]);
   const [checkBusy, setCheckBusy] = createSignal(false);
+  const [localModels, setLocalModels] = createSignal<LocalModelRow[]>([]);
+  const [embeddingModel, setEmbeddingModel] = createSignal("");
+  const [embeddingBusy, setEmbeddingBusy] = createSignal(false);
+
+  const saveEmbedding = async () => {
+    setEmbeddingBusy(true);
+    setError(null);
+    try {
+      await api.ragEmbeddingSet(embeddingModel() || null);
+      setNotice(
+        embeddingModel()
+          ? "Модель эмбеддингов сохранена. Векторизуйте проект в меню «Проект»."
+          : "Векторный поиск отключён, RAG работает на FTS5.",
+      );
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setEmbeddingBusy(false);
+    }
+  };
 
   const runSelfCheck = async () => {
     setCheckBusy(true);
@@ -241,6 +261,8 @@ export default function SettingsView() {
     await load();
     await loadWeb();
     await loadBackupInfo();
+    setEmbeddingModel((await api.ragEmbeddingGet()) ?? "");
+    setLocalModels(await api.localModelsList());
   });
 
   return (
@@ -533,6 +555,33 @@ export default function SettingsView() {
           <button class="btn ghost" onClick={() => void api.openPath(backupInfo()!.dir)}>
             📂 Открыть папку копий
           </button>
+        </Show>
+      </section>
+
+      <section class="card">
+        <h2>Векторный RAG</h2>
+        <p class="muted small">
+          FTS5 работает всегда. Для поиска по смыслу выберите локальную модель эмбеддингов и
+          векторизуйте проект через меню «Проект».
+        </p>
+        <div class="row">
+          <select
+            value={embeddingModel()}
+            onChange={(event) => setEmbeddingModel(event.currentTarget.value)}
+          >
+            <option value="">Только FTS5</option>
+            <For each={localModels()}>
+              {(model) => <option value={`local/${model.id}`}>{model.label}</option>}
+            </For>
+          </select>
+          <button class="btn" onClick={() => void saveEmbedding()} disabled={embeddingBusy()}>
+            {embeddingBusy() ? "Сохраняю…" : "Сохранить"}
+          </button>
+        </div>
+        <Show when={localModels().length === 0}>
+          <p class="muted small">
+            Локальных моделей нет. Добавьте модель эмбеддингов в «Моделях».
+          </p>
         </Show>
       </section>
 

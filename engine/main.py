@@ -204,10 +204,10 @@ def create_app(registry: Registry) -> FastAPI:
 
     @app.post("/embeddings")
     async def embeddings(body: EmbeddingsRequest):
-        # В MVP векторы не используются: память работает на FTS5.
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Эмбеддинги не поддерживаются в этой версии (память использует FTS5)"},
-        )
+        try:
+            vectors = await asyncio.to_thread(manager.embed, body.model, body.texts)
+        except ModelError as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
+        return {"vectors": vectors}
 
     return app

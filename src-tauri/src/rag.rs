@@ -3,9 +3,10 @@
 //! Без внешних моделей: индексируются текстовые файлы проекта, а перед ответом
 //! в промпт подмешиваются наиболее релевантные фрагменты с путями.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::Serialize;
 use tauri::State;
 
@@ -299,6 +300,239 @@ pub fn refresh_if_stale(db: &crate::db::Db, root: &Path) -> Result<bool> {
 }
 
 /// Блок релевантных фрагментов для system-промпта.
+pub const EMBEDDING_MODEL_KEY: &str = "rag_embedding_model";
+
+pub fn embedding_model(db: &crate::db::Db) -> Option<String> {
+    db.setting_get(EMBEDDING_MODEL_KEY)
+        .ok()
+        .flatten()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+async fn embed_texts(
+    state: &AppState,
+    model_id: &str,
+    texts: &[String],
+) -> Result<Vec<Vec<f32>>> {
+    let base = state.engine_base().await?;
+    let short = model_id.strip_prefix("local/").unwrap_or(model_id);
+    let body = serde_json::json!({ "model": short, "texts": texts });
+    let resp = state
+        .client
+        .post(format!("{base}/embeddings"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(300))
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        let message = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|value| value.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| format!("движок вернул {status}"));
+        bail!("{message}");
+    }
+    let value: serde_json::Value = resp.json().await?;
+    let vectors = value
+        .get("vectors")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("движок не вернул векторы"))?;
+    let mut out = Vec::with_capacity(vectors.len());
+    for vector in vectors {
+        let items = vector
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("некорректный вектор"))?;
+        out.push(
+            items
+                .iter()
+                .filter_map(|item| item.as_f64().map(|value| value as f32))
+                .collect(),
+        );
+    }
+    Ok(out)
+}
+
+#[derive(Serialize)]
+pub struct EmbedStats {
+    pub embedded: usize,
+    pub total: i64,
+    pub model: String,
+}
+
+#[tauri::command]
+pub async fn rag_embedding_get(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    Ok(embedding_model(&state.db))
+}
+
+#[tauri::command]
+pub async fn rag_embedding_set(
+    state: State<'_, AppState>,
+    model: Option<String>,
+) -> Result<(), String> {
+    let value = model.unwrap_or_default();
+    state
+        .db
+        .setting_set(EMBEDDING_MODEL_KEY, value.trim())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rag_embedding_status(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<EmbedStats, String> {
+    let session = state
+        .db
+        .session_get(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Сессия не найдена".to_string())?;
+    let root = session
+        .workdir
+        .ok_or_else(|| "У сессии нет рабочей папки".to_string())?;
+    let model = embedding_model(&state.db).unwrap_or_default();
+    let (embedded, total) = if model.is_empty() {
+        (0, 0)
+    } else {
+        state
+            .db
+            .rag_embedding_status(&root, &model)
+            .map_err(|e| e.to_string())?
+    };
+    Ok(EmbedStats {
+        embedded: embedded as usize,
+        total,
+        model,
+    })
+}
+
+#[tauri::command]
+pub async fn rag_embed_project(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<EmbedStats, String> {
+    let session = state
+        .db
+        .session_get(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Сессия не найдена".to_string())?;
+    let root = session
+        .workdir
+        .ok_or_else(|| "У сессии нет рабочей папки".to_string())?;
+    embed_project_root(&state, &root)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Векторизует все чанки проекта выбранной моделью эмбеддингов.
+pub async fn embed_project_root(state: &AppState, root: &str) -> Result<EmbedStats> {
+    let model = embedding_model(&state.db)
+        .ok_or_else(|| anyhow::anyhow!("Выберите модель эмбеддингов в настройках"))?;
+    let root_key = root.to_string();
+    let mut embedded = 0usize;
+    loop {
+        let pending = state
+            .db
+            .rag_pending_chunks(&root_key, &model, 16)?;
+        if pending.is_empty() {
+            break;
+        }
+        let texts: Vec<String> = pending.iter().map(|(_, content)| content.clone()).collect();
+        let vectors = embed_texts(state, &model, &texts).await?;
+        if vectors.len() != pending.len() {
+            bail!("Движок вернул неверное число векторов");
+        }
+        for ((chunk_id, _), vector) in pending.iter().zip(vectors.iter()) {
+            state.db.rag_set_embedding(chunk_id, vector, &model)?;
+            embedded += 1;
+        }
+    }
+    let (done, total) = state.db.rag_embedding_status(&root_key, &model)?;
+    Ok(EmbedStats {
+        embedded: if embedded > 0 { embedded } else { done as usize },
+        total,
+        model,
+    })
+}
+
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    if a.is_empty() || a.len() != b.len() {
+        return 0.0;
+    }
+    let mut dot = 0.0f32;
+    let mut na = 0.0f32;
+    let mut nb = 0.0f32;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    if na == 0.0 || nb == 0.0 {
+        0.0
+    } else {
+        dot / (na.sqrt() * nb.sqrt())
+    }
+}
+
+/// Гибридный поиск: FTS + векторы (RRF). При ошибке эмбеддингов — обычный FTS.
+pub async fn context_block_hybrid(
+    state: &AppState,
+    root: &Path,
+    query: &str,
+    limit: usize,
+) -> Option<String> {
+    let root_key = root.to_string_lossy().to_string();
+    let fts = state.db.rag_search(&root_key, query, limit).ok()?;
+    let model = embedding_model(&state.db);
+    let mut merged: HashMap<(String, i64), (String, f64)> = HashMap::new();
+    for (rank, hit) in fts.iter().enumerate() {
+        merged
+            .entry((hit.path.clone(), hit.line))
+            .or_insert((hit.content.clone(), 0.0))
+            .1 += 1.0 / (60.0 + (rank + 1) as f64);
+    }
+    if let Some(model) = model {
+        let query_vector = embed_texts(state, &model, &[query.to_string()]).await.ok();
+        if let Some(query_vector) = query_vector.and_then(|vectors| vectors.into_iter().next()) {
+            if let Ok(vectors) = state.db.rag_vectors(&root_key, &model) {
+                let mut scored: Vec<(usize, f32)> = vectors
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (_, _, _, vector))| (index, cosine(&query_vector, vector)))
+                    .collect();
+                scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+                for (rank, (index, score)) in scored.into_iter().take(limit * 2).enumerate() {
+                    if score <= 0.0 {
+                        continue;
+                    }
+                    let (path, content, line, _) = &vectors[index];
+                    let entry = merged
+                        .entry((path.clone(), *line))
+                        .or_insert((content.clone(), 0.0));
+                    entry.1 += 1.0 / (60.0 + (rank + 1) as f64);
+                }
+            }
+        }
+    }
+    if merged.is_empty() {
+        return None;
+    }
+    let mut hits: Vec<((String, i64), (String, f64))> = merged.into_iter().collect();
+    hits.sort_by(|a, b| b.1 .1.total_cmp(&a.1 .1));
+    let mut out = String::from(
+        "Релевантные фрагменты проекта (RAG). Используй их и ссылайся на пути файлов:\n",
+    );
+    for ((path, line), (content, _)) in hits.into_iter().take(limit) {
+        let body: String = content.chars().take(HIT_CHARS).collect();
+        out.push_str(&format!("\n[{path}:{line}]\n{body}\n"));
+        if out.chars().count() > BLOCK_CHARS {
+            break;
+        }
+    }
+    Some(out)
+}
+
 pub fn context_block(db: &crate::db::Db, root: &Path, query: &str, limit: usize) -> Option<String> {
     let root_key = root.to_string_lossy().to_string();
     let hits = db.rag_search(&root_key, query, limit).ok()?;
@@ -386,6 +620,13 @@ pub async fn rag_set_enabled(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cosine_similarity_basics() {
+        assert!((cosine(&[1.0, 0.0], &[1.0, 0.0]) - 1.0).abs() < 1e-6);
+        assert!(cosine(&[1.0, 0.0], &[0.0, 1.0]).abs() < 1e-6);
+        assert_eq!(cosine(&[1.0], &[1.0, 2.0]), 0.0);
+    }
 
     #[test]
     fn respects_gitignore() {

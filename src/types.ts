@@ -456,6 +456,12 @@ export interface ModelDownloadEvent {
   done: boolean;
 }
 
+export interface EmbedStats {
+  embedded: number;
+  total: number;
+  model: string;
+}
+
 export interface PickedAttachment {
   name: string;
   path: string;

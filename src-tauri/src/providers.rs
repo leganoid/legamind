@@ -377,6 +377,12 @@ pub async fn provider_model_role(
 /// Полный список моделей: локальные + модели включённых провайдеров.
 #[tauri::command]
 pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, String> {
+    let embedding_model = state
+        .db
+        .setting_get("rag_embedding_model")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let mut engine_models: Option<Vec<ModelInfo>> = None;
 
     // Если движок готов — берём локальные модели из него (включая добавленные вручную).
@@ -417,7 +423,11 @@ pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, S
                             .and_then(|v| v.as_u64())
                             .map(|v| v as u32),
                         efforts: Vec::new(),
-                        role: "chat".to_string(),
+                        role: if format!("local/{id}") == embedding_model {
+                            "embedding".to_string()
+                        } else {
+                            "chat".to_string()
+                        },
                     });
                 }
                 if !built.is_empty() {

@@ -709,7 +709,8 @@ async fn run_chat(
                     if rag_enabled {
                         let _ = crate::rag::refresh_if_stale(&state.db, &workdir_path);
                         if let Some(rag) =
-                            crate::rag::context_block(&state.db, &workdir_path, &last_user, 5)
+                            crate::rag::context_block_hybrid(&state, &workdir_path, &last_user, 5)
+                                .await
                         {
                             rag_used = true;
                             system.content.push_str("\n\n");
@@ -934,6 +935,7 @@ pub fn help_text() -> String {
         "/workdir <путь> — задать рабочую папку (создаст файлы проекта)",
         "/web <запрос> — поиск в интернете, /web on|off — вкл/выкл",
         "/index — проиндексировать рабочую папку для RAG",
+        "/vectors — посчитать эмбеддинги для RAG (нужна модель в настройках)",
         "",
         "Без слэша: «запомни: …» тоже сохраняет факт.",
     ]
@@ -1305,6 +1307,22 @@ pub async fn chat_command(
             .collect::<Vec<_>>()
             .join("\n\n");
         return notice(text);
+    }
+
+    if cmd == "vectors" || cmd == "embed" {
+        let workdir = state
+            .db
+            .session_get(&session_id)
+            .map_err(|e| e.to_string())?
+            .and_then(|session| session.workdir)
+            .ok_or_else(|| "Сначала задайте рабочую папку: /workdir <путь>".to_string())?;
+        let stats = crate::rag::embed_project_root(&state, &workdir)
+            .await
+            .map_err(|e| e.to_string())?;
+        return notice(format!(
+            "Векторы: {} из {} · {}",
+            stats.embedded, stats.total, stats.model
+        ));
     }
 
     if let Some(result) = local_command(&state.db, &state.data_dir, &session_id, &cmd, &args)? {

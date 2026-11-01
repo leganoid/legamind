@@ -16,6 +16,7 @@ import type {
   DebateStartResult,
   EditStart,
   EngineStats,
+  EmbedStats,
   ExtractedItem,
   FeedbackRow,
   FinetuneStatus,
@@ -148,6 +149,12 @@ export const api = {
   ragStatus: (sessionId: string) => invoke<RagStats>("rag_status", { sessionId }),
   ragGetEnabled: () => invoke<boolean>("rag_get_enabled"),
   ragSetEnabled: (enabled: boolean) => invoke<boolean>("rag_set_enabled", { enabled }),
+  ragEmbeddingGet: () => invoke<string | null>("rag_embedding_get"),
+  ragEmbeddingSet: (model: string | null) => invoke<void>("rag_embedding_set", { model }),
+  ragEmbeddingStatus: (sessionId: string) =>
+    invoke<EmbedStats>("rag_embedding_status", { sessionId }),
+  ragEmbedProject: (sessionId: string) =>
+    invoke<EmbedStats>("rag_embed_project", { sessionId }),
   dbBackup: (encrypted = false) => invoke<string>("db_backup", { encrypted }),
   dbRestore: () => invoke<string>("db_restore"),
   dbBackupInfo: () => invoke<BackupInfo>("db_backup_info"),

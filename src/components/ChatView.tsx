@@ -299,6 +299,21 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const embedProject = async () => {
+    const id = activeId();
+    if (!id) return;
+    setNotice("Векторизую проект…");
+    try {
+      const stats = await api.ragEmbedProject(id);
+      setNotice(
+        `Векторы: ${stats.embedded} из ${stats.total} · ${stats.model || "модель не выбрана"}`,
+      );
+    } catch (err) {
+      setNotice(null);
+      setError(String(err));
+    }
+  };
+
   const clearPermissions = async () => {
     const id = activeId();
     if (!id) return;
@@ -1051,6 +1066,14 @@ export default function ChatView(props: Props) {
                 }}
               >
                 RAG: {ragEnabled() ? "включён" : "выключен"}
+              </button>
+              <button
+                onClick={() => {
+                  closeProjectMenu();
+                  void embedProject();
+                }}
+              >
+                🧠 Векторизовать проект
               </button>
               <button
                 onClick={() => {

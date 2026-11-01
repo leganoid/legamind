@@ -68,6 +68,7 @@ class ModelManager:
     def __init__(self, registry: Registry):
         self.registry = registry
         self._entries: dict[str, ModelEntry] = {}
+        self._embedders: dict[str, Any] = {}
         self._global_lock = threading.Lock()
         self._cache_lock = threading.Lock()
 
@@ -167,6 +168,31 @@ class ModelManager:
         for entry in entries:
             with entry.lock:
                 entry.pipeline = None
+
+    # ------------------------------------------------------------------ эмбеддинги
+    def embed(self, model_id: str, texts: list[str]) -> list[list[float]]:
+        """Векторы для RAG. Модель должна быть добавлена как локальная OpenVINO IR."""
+        cfg = self.registry.get(model_id)
+        if cfg is None:
+            raise ModelError(f"Неизвестная модель: {model_id}")
+        if not texts:
+            return []
+        device = str(cfg.get("device", "CPU"))
+        with self._cache_lock:
+            pipeline = self._embedders.get(model_id)
+            if pipeline is None:
+                try:
+                    pipeline = ov_genai.TextEmbeddingPipeline(cfg["path"], device)
+                    self._embedders[model_id] = pipeline
+                except Exception as exc:  # noqa: BLE001
+                    raise ModelError(
+                        f"Не удалось загрузить эмбеддинг-модель {cfg.get('label', model_id)}: {exc}"
+                    ) from exc
+        try:
+            vectors = pipeline.embed_documents(texts)
+        except Exception as exc:  # noqa: BLE001
+            raise ModelError(f"Ошибка эмбеддингов: {exc}") from exc
+        return [[float(value) for value in vector] for vector in vectors]
 
     # ------------------------------------------------------------------ генерация
     def generate_stream(

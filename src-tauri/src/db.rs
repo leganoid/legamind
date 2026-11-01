@@ -683,6 +683,14 @@ impl Db {
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (15)", [])?;
         }
+
+        if current < 16 {
+            conn.execute_batch(
+                "ALTER TABLE rag_chunks ADD COLUMN embedding BLOB;
+                 ALTER TABLE rag_chunks ADD COLUMN embedding_model TEXT;",
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (16)", [])?;
+        }
         Ok(())
     }
 
@@ -1509,9 +1517,78 @@ impl Db {
         Ok(version)
     }
 
-    /// Обзор индексов: корень, число чанков, число файлов.
-    pub fn rag_overview(&self) -> Result<Vec<(String, i64, i64)>> {
+    pub fn rag_set_embedding(&self, chunk_id: &str, vector: &[f32], model: &str) -> Result<()> {
+        let mut bytes = Vec::with_capacity(vector.len() * 4);
+        for value in vector {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
         let conn = self.conn();
+        conn.execute(
+            "UPDATE rag_chunks SET embedding = ?2, embedding_model = ?3 WHERE id = ?1",
+            params![chunk_id, bytes, model],
+        )?;
+        Ok(())
+    }
+
+    /// Чанки без векторов для выбранной модели эмбеддингов.
+    pub fn rag_pending_chunks(
+        &self,
+        root: &str,
+        model: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, content FROM rag_chunks
+             WHERE root = ?1 AND (embedding IS NULL OR embedding_model IS NOT ?2)
+             ORDER BY rowid LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![root, model, limit as i64], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Векторы проекта для выбранной модели.
+    pub fn rag_vectors(
+        &self,
+        root: &str,
+        model: &str,
+    ) -> Result<Vec<(String, String, i64, Vec<f32>)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT path, content, start_line, embedding FROM rag_chunks
+             WHERE root = ?1 AND embedding_model = ?2 AND embedding IS NOT NULL",
+        )?;
+        let rows = stmt.query_map(params![root, model], |row| {
+            let bytes: Vec<u8> = row.get(3)?;
+            let vector = bytes
+                .chunks_exact(4)
+                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .collect();
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, vector))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// (с векторами, всего) для выбранной модели.
+    pub fn rag_embedding_status(&self, root: &str, model: &str) -> Result<(i64, i64)> {
+        let conn = self.conn();
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM rag_chunks WHERE root = ?1",
+            params![root],
+            |row| row.get(0),
+        )?;
+        let embedded: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM rag_chunks WHERE root = ?1 AND embedding_model = ?2 AND embedding IS NOT NULL",
+            params![root, model],
+            |row| row.get(0),
+        )?;
+        Ok((embedded, total))
+    }
+
+    /// Обзор индексов: корень, число чанков, число файлов.
+    pub fn rag_overview(&self) -> Result<Vec<(String, i64, i64)>> {        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT root, COUNT(*), COUNT(DISTINCT path) FROM rag_chunks GROUP BY root ORDER BY root",
         )?;
@@ -2148,6 +2225,27 @@ mod tests {
         assert!(list[0].pinned);
         assert_eq!(list[1].id, second.id);
         assert!(!list[1].pinned);
+    }
+
+    #[test]
+    fn rag_embeddings_roundtrip() {
+        let db = Db::open_memory().unwrap();
+        db.rag_add_chunk("root", "a.md", 0, "hello world", 1)
+            .unwrap();
+        let pending = db.rag_pending_chunks("root", "model-a", 10).unwrap();
+        assert_eq!(pending.len(), 1);
+        db.rag_set_embedding(&pending[0].0, &[1.0, 0.0, 0.5], "model-a")
+            .unwrap();
+        let vectors = db.rag_vectors("root", "model-a").unwrap();
+        assert_eq!(vectors.len(), 1);
+        assert_eq!(vectors[0].0, "a.md");
+        assert_eq!(vectors[0].3, vec![1.0, 0.0, 0.5]);
+        assert_eq!(db.rag_embedding_status("root", "model-a").unwrap(), (1, 1));
+        assert!(db
+            .rag_pending_chunks("root", "model-b", 10)
+            .unwrap()
+            .len()
+            == 1);
     }
 
     #[test]
