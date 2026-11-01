@@ -19,3 +19,7 @@ engine/tests/__pycache__/
 
 sidecar-dist/
 
+
+# Локальная конфигурация сборки (пути этой машины)
+.cargo/config.toml
+
