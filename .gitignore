@@ -16,3 +16,6 @@ engine/tests/__pycache__/
 
 # Локальные логи
 *.log
+
+sidecar-dist/
+

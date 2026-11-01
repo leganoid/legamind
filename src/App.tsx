@@ -214,6 +214,10 @@ export default function App() {
     });
     window.addEventListener("beforeunload", () => window.clearInterval(timer));
     window.addEventListener("legamind:start-tour", () => setTourOpen(true));
+    window.addEventListener("legamind:navigate", (event) => {
+      const target = (event as CustomEvent<string>).detail;
+      if (target) setView(target as View);
+    });
     window.addEventListener("legamind:sessions", (event) => {
       const detail = (event as CustomEvent<Session[]>).detail;
       if (Array.isArray(detail)) setPaletteSessions(detail);

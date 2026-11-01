@@ -19,14 +19,32 @@ Tauri v2 (Rust) + SolidJS + Python-сайдкар `legamind-engine`.
 | M7 — RAG | локальный полнотекстовый индекс рабочей папки (FTS5), топ-5 фрагментов в промпте, кнопка «📚 Индекс» и `/index` |
 | Сессии | рабочая папка проекта, режимы чат/планирование/сборка/ревизия, доверие read_only/workspace/full, уровень рассуждений, проверка орфографии, DeepSeek как облачный провайдер |
 
+## Установка и первый запуск
+
+1. Установите MSI из `src-tauri\target\release\bundle\msi\`.
+2. Подключите облачную модель: «Провайдеры» → добавить ключ → проверить → включить.
+3. Либо добавьте локальную модель: скачайте OpenVINO IR (папка с `openvino_model.xml`
+   и `.bin`) и укажите её в «Моделях».
+4. Выберите рабочую папку проекта (чип «Проект»).
+
+Python, Node.js и модели в установщик не входят: движок упакован в
+`legamind-engine.exe`, модели пользователь подключает сам.
+
 ## Требования
 
-* Windows 11 x64, WebView2.
-* Python 3.12 c OpenVINO GenAI: `%LOCALAPPDATA%\venvs\ai`
-  (в нём должны быть `openvino`, `openvino-genai`, `fastapi`, `uvicorn`, `pydantic`).
+**Для пользователя:**
+
+* Windows 10/11 x64, WebView2 (установщик скачает bootstrapper при необходимости).
+* Ключ облачного провайдера или скачанная локальная OpenVINO IR-модель.
+
+**Для сборки из исходников:**
+
+* Python 3.12 с OpenVINO GenAI в `%LOCALAPPDATA%\venvs\ai`
+  (`openvino`, `openvino-genai`, `fastapi`, `uvicorn`, `pydantic`, `pyinstaller`).
 * Node.js 20+ и npm.
 * Rust (stable, MSVC) + MSVC Build Tools + Windows SDK.
-* Модели OpenVINO IR в `C:\Models\...` (см. `TASK.md`), кэш компиляции — `C:\Models\cache`.
+* Сборка автономного движка: `powershell -ExecutionPolicy Bypass -File build-sidecar.ps1`
+  (результат — `sidecar-dist\legamind-engine`).
 
 ### Особенности этой машины
 

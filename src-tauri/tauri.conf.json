@@ -32,7 +32,13 @@
     "targets": ["msi"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
     "resources": {
-      "../engine": "engine"
+      "../engine": "engine",
+      "../sidecar-dist/legamind-engine": "engine-bin"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
     }
   }
 }

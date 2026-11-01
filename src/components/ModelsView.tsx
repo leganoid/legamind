@@ -276,6 +276,12 @@ export default function ModelsView(props: Props) {  const [busy, setBusy] = crea
       </Show>
 
       <h2 class="section-title">Локальные</h2>
+      <Show when={local().length === 0}>
+        <p class="empty-inline">
+          Локальных моделей пока нет. Скачайте OpenVINO IR (файлы .xml и .bin) и добавьте папку
+          ниже — установщик модели не включает.
+        </p>
+      </Show>
       <div class="card-grid">
         <For each={local()}>
           {(model) => (

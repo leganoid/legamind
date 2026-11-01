@@ -2,12 +2,12 @@
     {
         "step":  "Подготовка сессии и проекта",
         "ok":  true,
-        "detail":  "session=86c329fc-fc85-46c4-93ea-a2d229826e1a"
+        "detail":  "session=036a389b-32f2-4e60-967f-52550ef50940"
     },
     {
         "step":  "Запуск приложения",
         "ok":  true,
-        "detail":  "pid=21872"
+        "detail":  "pid=16900"
     },
     {
         "step":  "Композер доступен (тур закрыт)",
@@ -37,12 +37,12 @@
     {
         "step":  "Ответ по RAG",
         "ok":  true,
-        "detail":  "assistant=E2E_RAG_TOKEN_246"
+        "detail":  "assistant=\u003cthink\u003e\nThe RAG context says notes.md line 1: \"# E2E\\n\\n���������� ����� �������: E2E_RAG_TOKEN_246.\" I should answer one line. But better verify by reading file? Instructions say don\u0027t invent content � but RAG provides it. Safer: read_file. However concise. I\u0027ll just read to confirm.\n\nActually the rule: \"�� ��������� ���������� ������: ������� read_file, ����� �����.\" That\u0027s ��� ������. I can ans"
     },
     {
         "step":  "Перезапуск приложения",
         "ok":  true,
-        "detail":  "pid=15008"
+        "detail":  "pid=18192"
     },
     {
         "step":  "История сохранилась",

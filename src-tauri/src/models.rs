@@ -149,13 +149,7 @@ pub struct LocalDef {
 
 /// Реестр локальных моделей — синхронизирован с `engine/registry.py`.
 /// `context_tokens` — сколько токенов промпта реально принимает пайплайн.
-pub const LOCAL_MODELS: &[LocalDef] = &[
-    LocalDef { id: "qwen3-14b", label: "Qwen3-14B", device: "GPU", size_gb: 9.06, thinks: true, context_tokens: 32768 },
-    LocalDef { id: "coder-30b", label: "Qwen3-Coder-30B-A3B", device: "GPU", size_gb: 15.2, thinks: false, context_tokens: 65536 },
-    LocalDef { id: "coder-7b", label: "Qwen2.5-Coder-7B", device: "GPU", size_gb: 4.2, thinks: false, context_tokens: 32768 },
-    // NPU-пайплайн ограничен MAX_PROMPT_LEN=4096 (см. engine/manager.py)
-    LocalDef { id: "qwen-1.5b", label: "Qwen2.5-1.5B", device: "NPU", size_gb: 0.87, thinks: false, context_tokens: 4096 },
-];
+pub const LOCAL_MODELS: &[LocalDef] = &[];
 
 pub fn local_models() -> Vec<ModelInfo> {
     LOCAL_MODELS
@@ -855,14 +849,13 @@ mod tests {
 
     #[test]
     fn local_label_lookup() {
-        assert_eq!(local_label("local/qwen3-14b"), Some("Qwen3-14B"));
+        // Встроенных моделей нет: пользователь добавляет их сам.
         assert_eq!(local_label("local/unknown"), None);
     }
 
     #[test]
     fn local_context_limits() {
-        assert_eq!(local_context_tokens("local/qwen-1.5b"), Some(4096));
-        assert_eq!(local_context_tokens("local/qwen3-14b"), Some(32768));
+        assert_eq!(local_context_tokens("local/unknown"), None);
         assert_eq!(local_context_tokens("openai/gpt-4o"), None);
     }
 

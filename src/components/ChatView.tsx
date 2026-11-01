@@ -1080,6 +1080,31 @@ export default function ChatView(props: Props) {
             </button>
           </div>
         </Show>
+
+        <Show when={props.models.length === 0}>
+          <div class="banner info">
+            Нет доступных моделей. Подключите облачного провайдера или добавьте локальную
+            модель.
+            <button
+              class="btn small"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("legamind:navigate", { detail: "providers" }),
+                )
+              }
+            >
+              Провайдеры
+            </button>
+            <button
+              class="btn small"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent("legamind:navigate", { detail: "models" }))
+              }
+            >
+              Модели
+            </button>
+          </div>
+        </Show>
         <Show when={commandBusy()}>
           <div class="banner info">Выполняю команду…</div>
         </Show>
