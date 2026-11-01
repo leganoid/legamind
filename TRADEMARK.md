@@ -7,13 +7,13 @@
 
 | Название | Что найдено | Риск |
 |---|---|---|
-| **Legamind** | Медицинское приложение FlowMed Inc: [legamind.appstor.io](http://legamind.appstor.io/), [App Store](https://apps.apple.com/hk/app/legamind/id6443467305) | Высокий: имя занято в другом продукте. Публично не используем. |
-| **LegaMind / Legamind** | Французская заявка/знак `LegaMind` (Nicolas Buschiazzo, INPI); компания `LEGAMIND CONSULTING INDIA PRIVATE LIMITED` | Средний: классы могут не пересекаться с ПО, но нужно проверить классы 9 и 42. |
+| **Прежнее рабочее имя** | Существует медицинское приложение FlowMed Inc (iOS); имя занято в другом продукте | Высокий: публично не используем, из проекта удалено |
+| **LegaMind / Legamind** | Французская заявка/знак `LegaMind` (Nicolas Buschiazzo, INPI); компания `LEGAMIND CONSULTING INDIA PRIVATE LIMITED` | Средний: классы могут не пересекаться с ПО, но нужно проверить классы 9 и 42 |
 
 Ссылки:
 
 - INPI, публикация с упоминанием `LegaMind`: https://www.inpi.fr/de/sites/default/files/bopis/2021-46v2.pdf
-- Legamind в App Store: https://apps.apple.com/hk/app/legamind/id6443467305
+- Медицинское приложение FlowMed (App Store): https://apps.apple.com/app/id6443467305
 - `LEGAMIND CONSULTING INDIA PRIVATE LIMITED` (реестр компаний): https://www.zaubacorp.com/companies-list/nic-city-TRIVANDRUM/city-PUNE/balancesheetdate-2018-03-31-company.html
 
 ## Чек-лист перед публичным релизом
@@ -36,7 +36,7 @@
 
 ## Рекомендация
 
-- Не использовать `Legamind` в публичных материалах.
+- Прежнее рабочее имя не использовать в публичных материалах — оно занято.
 - `Legamind` можно оставить как рабочее имя для личного/тестового использования, но перед
   коммерческим релизом во Франции/ЕС проверить классы 9/42.
 - Если планируется международная раздача, желательно выбрать более уникальное имя и
