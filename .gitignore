@@ -1,10 +1,10 @@
-# Зависимости
+﻿# Р—Р°РІРёСЃРёРјРѕСЃС‚Рё
 node_modules/
 .pnpm-store/
 dist/
 src-tauri/target/
 
-# Инструменты, скачанные для сборки (не часть репозитория)
+# РРЅСЃС‚СЂСѓРјРµРЅС‚С‹, СЃРєР°С‡Р°РЅРЅС‹Рµ РґР»СЏ СЃР±РѕСЂРєРё (РЅРµ С‡Р°СЃС‚СЊ СЂРµРїРѕР·РёС‚РѕСЂРёСЏ)
 .tools/
 tmp_chat_test.py
 
@@ -14,12 +14,13 @@ __pycache__/
 .pytest_cache/
 engine/tests/__pycache__/
 
-# Локальные логи
+# Р›РѕРєР°Р»СЊРЅС‹Рµ Р»РѕРіРё
 *.log
 
-sidecar-dist/
-
-
-# Локальная конфигурация сборки (пути этой машины)
+sidecar-dist/*
+!sidecar-dist/legamind-engine/
+sidecar-dist/legamind-engine/*
+!sidecar-dist/legamind-engine/.gitkeep
+# Р›РѕРєР°Р»СЊРЅР°СЏ РєРѕРЅС„РёРіСѓСЂР°С†РёСЏ СЃР±РѕСЂРєРё (РїСѓС‚Рё СЌС‚РѕР№ РјР°С€РёРЅС‹)
 .cargo/config.toml
 
