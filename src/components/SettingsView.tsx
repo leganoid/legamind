@@ -1,6 +1,6 @@
 import { For, Show, createSignal, onMount } from "solid-js";
 import { api } from "../api";
-import type { AppInfo, BackupInfo, LogTail, WebConfigView, WebTestResult } from "../types";
+import type { AppInfo, BackupInfo, LogTail, SelfCheckItem, WebConfigView, WebTestResult } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function SettingsView() {
@@ -27,6 +27,20 @@ export default function SettingsView() {
   const [logLines, setLogLines] = createSignal(400);
   const [logTail, setLogTail] = createSignal<LogTail | null>(null);
   const [logBusy, setLogBusy] = createSignal(false);
+  const [checks, setChecks] = createSignal<SelfCheckItem[]>([]);
+  const [checkBusy, setCheckBusy] = createSignal(false);
+
+  const runSelfCheck = async () => {
+    setCheckBusy(true);
+    setError(null);
+    try {
+      setChecks(await api.selfCheck());
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setCheckBusy(false);
+    }
+  };
   const [theme, setTheme] = createSignal(
     localStorage.getItem("legamind.theme") === "light" ? "light" : "dark",
   );
@@ -519,6 +533,33 @@ export default function SettingsView() {
           <button class="btn ghost" onClick={() => void api.openPath(backupInfo()!.dir)}>
             📂 Открыть папку копий
           </button>
+        </Show>
+      </section>
+
+      <section class="card">
+        <h2>Самопроверка</h2>
+        <p class="muted small">
+          Проверяет базу, движок, модели, RAG-индекс, провайдеров и ключи, интернет, копии и логи.
+        </p>
+        <button class="btn" onClick={() => void runSelfCheck()} disabled={checkBusy()}>
+          {checkBusy() ? "Проверяю…" : "🔍 Проверить всё"}
+        </button>
+        <Show when={checks().length > 0}>
+          <div class="check-list">
+            <For each={checks()}>
+              {(check) => (
+                <div classList={{ "check-row": true, [check.status]: true }}>
+                  <span class="check-icon">
+                    {check.status === "ok" ? "✅" : check.status === "warn" ? "⚠" : "❌"}
+                  </span>
+                  <div>
+                    <strong>{check.label}</strong>
+                    <p class="muted small">{check.detail}</p>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
         </Show>
       </section>
 

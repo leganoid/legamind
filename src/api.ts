@@ -37,6 +37,7 @@ import type {
   SourceRow,
   ToolRunRow,
   RagStats,
+  SelfCheckItem,
   WebConfigView,
   WebResult,
   WebTestResult,
@@ -161,6 +162,7 @@ export const api = {
   logsTail: (name: string, lines = 400) =>
     invoke<LogTail>("logs_tail", { name, lines }),
   engineStats: () => invoke<EngineStats>("engine_stats"),
+  selfCheck: () => invoke<SelfCheckItem[]>("self_check"),
   pickTextAttachment: () => invoke<PickedAttachment | null>("pick_text_attachment"),
   watchWorkdir: (sessionId: string) => invoke<string>("watch_workdir", { sessionId }),
   unwatchWorkdir: () => invoke<void>("unwatch_workdir"),

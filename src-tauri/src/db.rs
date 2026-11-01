@@ -1499,6 +1499,28 @@ impl Db {
         Ok(rows)
     }
 
+    pub fn schema_version(&self) -> Result<i64> {
+        let conn = self.conn();
+        let version = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(version)
+    }
+
+    /// Обзор индексов: корень, число чанков, число файлов.
+    pub fn rag_overview(&self) -> Result<Vec<(String, i64, i64)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT root, COUNT(*), COUNT(DISTINCT path) FROM rag_chunks GROUP BY root ORDER BY root",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
     pub fn rag_stats(&self, root: &str) -> Result<RagStats> {
         let conn = self.conn();
         let chunks: i64 = conn.query_row(

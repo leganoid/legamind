@@ -1913,3 +1913,36 @@ label.inline {
 .tour-dot.active {
   background: var(--accent);
 }
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.check-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+
+.check-row p {
+  margin: 2px 0 0;
+}
+
+.check-row.fail {
+  border-color: var(--danger);
+}
+
+.check-row.warn {
+  border-color: #b58900;
+}
+
+.check-icon {
+  line-height: 1.3;
+}

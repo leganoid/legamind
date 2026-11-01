@@ -415,6 +415,13 @@ export interface EngineStats {
   models: number;
 }
 
+export interface SelfCheckItem {
+  id: string;
+  label: string;
+  status: "ok" | "warn" | "fail";
+  detail: string;
+}
+
 export interface PickedAttachment {
   name: string;
   path: string;

@@ -118,8 +118,7 @@ pub struct BackupInfo {
     pub auto_count: usize,
 }
 
-#[tauri::command]
-pub fn db_backup_info(state: State<'_, AppState>) -> Result<BackupInfo, String> {
+pub fn backup_info(state: &AppState) -> BackupInfo {
     let dir = backups_dir(&state.data_dir);
     let auto_count = std::fs::read_dir(&dir)
         .map(|entries| {
@@ -132,11 +131,16 @@ pub fn db_backup_info(state: State<'_, AppState>) -> Result<BackupInfo, String> 
                 .count()
         })
         .unwrap_or(0);
-    Ok(BackupInfo {
-        last_auto: state.db.setting_get("last_auto_backup").map_err(|e| e.to_string())?,
+    BackupInfo {
+        last_auto: state.db.setting_get("last_auto_backup").ok().flatten(),
         dir: dir.to_string_lossy().to_string(),
         auto_count,
-    })
+    }
+}
+
+#[tauri::command]
+pub fn db_backup_info(state: State<'_, AppState>) -> Result<BackupInfo, String> {
+    Ok(backup_info(&state))
 }
 
 #[tauri::command]

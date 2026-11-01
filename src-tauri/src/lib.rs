@@ -21,6 +21,7 @@ pub mod local_models;
 pub mod logs;
 pub mod attachments;
 pub mod export;
+pub mod health;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -385,6 +386,7 @@ pub fn run() {
             logs::logs_tail,
             attachments::pick_text_attachment,
             export::export_all,
+            health::self_check,
             skills::skills_list,
             skills::skill_save,
             skills::skill_delete,
