@@ -339,6 +339,8 @@ pub fn run() {
             rag::rag_embedding_get,
             rag::rag_embedding_status,
             rag::rag_embed_project,
+            rag::rag_reranker_get,
+            rag::rag_reranker_set,
             backup::db_backup,
             backup::db_restore,
             backup::db_backup_info,

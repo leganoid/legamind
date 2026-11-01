@@ -69,6 +69,7 @@ class ModelManager:
         self.registry = registry
         self._entries: dict[str, ModelEntry] = {}
         self._embedders: dict[str, Any] = {}
+        self._rerankers: dict[str, Any] = {}
         self._global_lock = threading.Lock()
         self._cache_lock = threading.Lock()
 
@@ -193,6 +194,32 @@ class ModelManager:
         except Exception as exc:  # noqa: BLE001
             raise ModelError(f"Ошибка эмбеддингов: {exc}") from exc
         return [[float(value) for value in vector] for vector in vectors]
+
+    # ------------------------------------------------------------------ реранкер
+    def rerank(
+        self, model_id: str, query: str, documents: list[str]
+    ) -> list[tuple[int, float]]:
+        cfg = self.registry.get(model_id)
+        if cfg is None:
+            raise ModelError(f"Неизвестная модель: {model_id}")
+        if not documents:
+            return []
+        device = str(cfg.get("device", "CPU"))
+        with self._cache_lock:
+            pipeline = self._rerankers.get(model_id)
+            if pipeline is None:
+                try:
+                    pipeline = ov_genai.TextRerankPipeline(cfg["path"], device)
+                    self._rerankers[model_id] = pipeline
+                except Exception as exc:  # noqa: BLE001
+                    raise ModelError(
+                        f"Не удалось загрузить реранкер {cfg.get('label', model_id)}: {exc}"
+                    ) from exc
+        try:
+            results = pipeline.rerank(query, documents)
+        except Exception as exc:  # noqa: BLE001
+            raise ModelError(f"Ошибка реранкера: {exc}") from exc
+        return [(int(index), float(score)) for index, score in results]
 
     # ------------------------------------------------------------------ генерация
     def generate_stream(

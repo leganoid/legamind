@@ -34,6 +34,25 @@ export default function SettingsView() {
   const [embeddingModels, setEmbeddingModels] = createSignal<ModelInfo[]>([]);
   const [embeddingModel, setEmbeddingModel] = createSignal("");
   const [embeddingBusy, setEmbeddingBusy] = createSignal(false);
+  const [rerankerModel, setRerankerModel] = createSignal("");
+  const [rerankerBusy, setRerankerBusy] = createSignal(false);
+
+  const saveReranker = async () => {
+    setRerankerBusy(true);
+    setError(null);
+    try {
+      await api.ragRerankerSet(rerankerModel() || null);
+      setNotice(
+        rerankerModel()
+          ? "Реранкер сохранён: кандидаты RAG будут переупорядочиваться."
+          : "Реранкер отключён.",
+      );
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setRerankerBusy(false);
+    }
+  };
   const [updateBusy, setUpdateBusy] = createSignal(false);
 
   const checkUpdates = async () => {
@@ -286,6 +305,7 @@ export default function SettingsView() {
     await loadWeb();
     await loadBackupInfo();
     setEmbeddingModel((await api.ragEmbeddingGet()) ?? "");
+    setRerankerModel((await api.ragRerankerGet()) ?? "");
     const all = await api.modelsList();
     setEmbeddingModels(
       all.filter((model) => model.role === "embedding" || model.kind === "local"),
@@ -625,6 +645,24 @@ export default function SettingsView() {
             роль «эмбеддинги» облачной модели в «Провайдерах».
           </p>
         </Show>
+        <div class="row">
+          <select
+            value={rerankerModel()}
+            onChange={(event) => setRerankerModel(event.currentTarget.value)}
+          >
+            <option value="">Без реранкера</option>
+            <For each={embeddingModels().filter((model) => model.kind === "local")}>
+              {(model) => <option value={model.id}>{model.label}</option>}
+            </For>
+          </select>
+          <button class="btn" onClick={() => void saveReranker()} disabled={rerankerBusy()}>
+            {rerankerBusy() ? "Сохраняю…" : "Сохранить реранкер"}
+          </button>
+        </div>
+        <p class="muted small">
+          Реранкер — локальная OpenVINO-модель; переупорядочивает найденные фрагменты перед
+          ответом.
+        </p>
       </section>
 
       <section class="card">

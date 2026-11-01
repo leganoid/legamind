@@ -301,6 +301,7 @@ pub fn refresh_if_stale(db: &crate::db::Db, root: &Path) -> Result<bool> {
 
 /// Блок релевантных фрагментов для system-промпта.
 pub const EMBEDDING_MODEL_KEY: &str = "rag_embedding_model";
+pub const RERANKER_MODEL_KEY: &str = "rag_reranker_model";
 
 pub fn embedding_model(db: &crate::db::Db) -> Option<String> {
     db.setting_get(EMBEDDING_MODEL_KEY)
@@ -308,6 +309,53 @@ pub fn embedding_model(db: &crate::db::Db) -> Option<String> {
         .flatten()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+pub fn reranker_model(db: &crate::db::Db) -> Option<String> {
+    db.setting_get(RERANKER_MODEL_KEY)
+        .ok()
+        .flatten()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+async fn rerank_candidates(
+    state: &AppState,
+    model_id: &str,
+    query: &str,
+    documents: &[String],
+) -> Result<Vec<(usize, f32)>> {
+    let base = state.engine_base().await?;
+    let short = model_id.strip_prefix("local/").unwrap_or(model_id);
+    let resp = state
+        .client
+        .post(format!("{base}/rerank"))
+        .json(&serde_json::json!({
+            "model": short,
+            "query": query,
+            "documents": documents
+        }))
+        .timeout(std::time::Duration::from_secs(300))
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        bail!("реранкер: {text}");
+    }
+    let value: serde_json::Value = resp.json().await?;
+    let results = value
+        .get("results")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("реранкер не вернул результаты"))?;
+    Ok(results
+        .iter()
+        .filter_map(|item| {
+            Some((
+                item.get("index")?.as_u64()? as usize,
+                item.get("score")?.as_f64()? as f32,
+            ))
+        })
+        .collect())
 }
 
 async fn embed_texts(
@@ -417,6 +465,23 @@ pub struct EmbedStats {
     pub embedded: usize,
     pub total: i64,
     pub model: String,
+}
+
+#[tauri::command]
+pub async fn rag_reranker_get(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    Ok(reranker_model(&state.db))
+}
+
+#[tauri::command]
+pub async fn rag_reranker_set(
+    state: State<'_, AppState>,
+    model: Option<String>,
+) -> Result<(), String> {
+    let value = model.unwrap_or_default();
+    state
+        .db
+        .setting_set(RERANKER_MODEL_KEY, value.trim())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -599,6 +664,31 @@ pub async fn context_block_hybrid(
     }
     let mut hits: Vec<((String, i64), (String, f64))> = merged.into_iter().collect();
     hits.sort_by(|a, b| b.1 .1.total_cmp(&a.1 .1));
+
+    // Реранкер (локальная модель): переупорядочивает кандидатов по смысловой близости.
+    if let Some(reranker) = reranker_model(&state.db) {
+        if reranker.starts_with("local/") {
+            let candidates: Vec<String> = hits
+                .iter()
+                .take(limit * 3)
+                .map(|((_, _), (content, _))| content.chars().take(HIT_CHARS).collect())
+                .collect();
+            if !candidates.is_empty() {
+                if let Ok(order) = rerank_candidates(state, &reranker, query, &candidates).await {
+                    let mut reordered = Vec::new();
+                    for (index, _) in order {
+                        if let Some(item) = hits.get(index) {
+                            reordered.push(item.clone());
+                        }
+                    }
+                    if !reordered.is_empty() {
+                        hits = reordered;
+                    }
+                }
+            }
+        }
+    }
+
     let mut out = String::from(
         "Релевантные фрагменты проекта (RAG). Используй их и ссылайся на пути файлов:\n",
     );

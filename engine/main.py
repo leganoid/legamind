@@ -50,6 +50,12 @@ class EmbeddingsRequest(BaseModel):
     texts: list[str] = Field(default_factory=list)
 
 
+class RerankRequest(BaseModel):
+    model: str
+    query: str
+    documents: list[str] = Field(default_factory=list)
+
+
 def _rss_mb() -> float | None:
     """Текущий RSS процесса без внешних зависимостей (Windows psapi)."""
     try:
@@ -209,5 +215,19 @@ def create_app(registry: Registry) -> FastAPI:
         except ModelError as exc:
             return JSONResponse(status_code=400, content={"error": str(exc)})
         return {"vectors": vectors}
+
+    @app.post("/rerank")
+    async def rerank(body: RerankRequest):
+        try:
+            results = await asyncio.to_thread(
+                manager.rerank, body.model, body.query, body.documents
+            )
+        except ModelError as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
+        return {
+            "results": [
+                {"index": index, "score": score} for index, score in results
+            ]
+        }
 
     return app

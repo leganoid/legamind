@@ -151,6 +151,8 @@ export const api = {
   ragSetEnabled: (enabled: boolean) => invoke<boolean>("rag_set_enabled", { enabled }),
   ragEmbeddingGet: () => invoke<string | null>("rag_embedding_get"),
   ragEmbeddingSet: (model: string | null) => invoke<void>("rag_embedding_set", { model }),
+  ragRerankerGet: () => invoke<string | null>("rag_reranker_get"),
+  ragRerankerSet: (model: string | null) => invoke<void>("rag_reranker_set", { model }),
   ragEmbeddingStatus: (sessionId: string) =>
     invoke<EmbedStats>("rag_embedding_status", { sessionId }),
   ragEmbedProject: (sessionId: string) =>

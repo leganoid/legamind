@@ -383,6 +383,12 @@ pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, S
         .ok()
         .flatten()
         .unwrap_or_default();
+    let reranker_model = state
+        .db
+        .setting_get("rag_reranker_model")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let mut engine_models: Option<Vec<ModelInfo>> = None;
 
     // Если движок готов — берём локальные модели из него (включая добавленные вручную).
@@ -425,6 +431,8 @@ pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, S
                         efforts: Vec::new(),
                         role: if format!("local/{id}") == embedding_model {
                             "embedding".to_string()
+                        } else if format!("local/{id}") == reranker_model {
+                            "rerank".to_string()
                         } else {
                             "chat".to_string()
                         },
