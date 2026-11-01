@@ -2,7 +2,7 @@ import { For, Show, createSignal, onMount } from "solid-js";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
-import type { AppInfo, BackupInfo, LogTail, ModelInfo, SelfCheckItem, WebConfigView, WebTestResult } from "../types";
+import type { AppInfo, BackupInfo, LogTail, ModelInfo, ModelUsage, SelfCheckItem, WebConfigView, WebTestResult } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function SettingsView() {
@@ -54,6 +54,22 @@ export default function SettingsView() {
     }
   };
   const [updateBusy, setUpdateBusy] = createSignal(false);
+  const [usage, setUsage] = createSignal<ModelUsage[]>([]);
+  const [usageBusy, setUsageBusy] = createSignal(false);
+
+  const loadUsage = async () => {
+    setUsageBusy(true);
+    try {
+      setUsage(await api.usageStats());
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setUsageBusy(false);
+    }
+  };
+
+  const totalTokens = () => usage().reduce((sum, row) => sum + row.tokens, 0);
+  const totalMessages = () => usage().reduce((sum, row) => sum + row.messages, 0);
 
   const checkUpdates = async () => {
     setUpdateBusy(true);
@@ -306,6 +322,7 @@ export default function SettingsView() {
     await loadBackupInfo();
     setEmbeddingModel((await api.ragEmbeddingGet()) ?? "");
     setRerankerModel((await api.ragRerankerGet()) ?? "");
+    void loadUsage();
     const all = await api.modelsList();
     setEmbeddingModels(
       all.filter((model) => model.role === "embedding" || model.kind === "local"),
@@ -500,6 +517,39 @@ export default function SettingsView() {
           {updateBusy() ? "Проверяю…" : "🔄 Проверить обновления"}
         </button>
       </section>
+      <section class="card">
+        <h2>Расход токенов</h2>
+        <p class="muted small">
+          Сохраняются только токены ответов моделей. Всего: {totalMessages()} ответов,{" "}
+          {totalTokens().toLocaleString("ru-RU")} токенов.
+        </p>
+        <Show when={usage().length > 0} fallback={<p class="muted small">Пока нет данных.</p>}>
+          <table class="usage-table">
+            <thead>
+              <tr>
+                <th>Модель</th>
+                <th>Ответов</th>
+                <th>Токенов</th>
+              </tr>
+            </thead>
+            <tbody>
+              <For each={usage()}>
+                {(row) => (
+                  <tr>
+                    <td class="mono">{row.model_id}</td>
+                    <td>{row.messages}</td>
+                    <td>{row.tokens.toLocaleString("ru-RU")}</td>
+                  </tr>
+                )}
+              </For>
+            </tbody>
+          </table>
+        </Show>
+        <button class="btn ghost" onClick={() => void loadUsage()} disabled={usageBusy()}>
+          {usageBusy() ? "Обновляю…" : "Обновить"}
+        </button>
+      </section>
+
       <section class="card">
         <h2>Оформление</h2>
         <div class="row">

@@ -462,6 +462,12 @@ export interface EmbedStats {
   model: string;
 }
 
+export interface ModelUsage {
+  model_id: string;
+  messages: number;
+  tokens: number;
+}
+
 export interface PickedAttachment {
   name: string;
   path: string;

@@ -1981,3 +1981,22 @@ label.inline {
   background: var(--accent);
   transition: width 0.2s linear;
 }
+
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 12px;
+  font-size: 12.5px;
+}
+
+.usage-table th,
+.usage-table td {
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.usage-table th {
+  color: var(--muted);
+  font-weight: 500;
+}

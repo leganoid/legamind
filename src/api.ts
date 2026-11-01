@@ -29,6 +29,7 @@ import type {
   MessageHitRow,
   MessageToolRow,
   ModelInfo,
+  ModelUsage,
   PickedAttachment,
   ProviderInput,
   ProviderModelRow,
@@ -142,6 +143,7 @@ export const api = {
     invoke<ToolRunRow[]>("tool_runs_list", { sessionId, limit }),
   messageTools: (sessionId: string) =>
     invoke<MessageToolRow[]>("message_tools", { sessionId }),
+  usageStats: () => invoke<ModelUsage[]>("usage_stats"),
   sessionPermissionsClear: (sessionId: string) =>
     invoke<void>("session_permissions_clear", { sessionId }),
   toolUndoLast: (sessionId: string) => invoke<string>("tool_undo_last", { sessionId }),

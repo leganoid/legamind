@@ -322,6 +322,7 @@ pub fn run() {
             chat::chat_command,
             chat::sources_list,
             chat::messages_search,
+            chat::usage_stats,
             chat::message_tools,
             workspace::pick_folder,
             workspace::session_set_workdir,

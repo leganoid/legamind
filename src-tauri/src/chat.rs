@@ -1239,6 +1239,13 @@ pub async fn message_tools(
 
 /// Поиск по сообщениям и названиям сессий для боковой панели.
 #[tauri::command]
+pub fn usage_stats(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::ModelUsage>, String> {
+    state.db.usage_by_model().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn messages_search(
     state: State<'_, AppState>,
     query: String,

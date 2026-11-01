@@ -217,6 +217,13 @@ pub struct RagStats {
     pub files: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelUsage {
+    pub model_id: String,
+    pub messages: i64,
+    pub tokens: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebateRow {
     pub id: String,
@@ -1594,6 +1601,26 @@ impl Db {
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Токены ответов по моделям (сохраняются только выходные токены).
+    pub fn usage_by_model(&self) -> Result<Vec<ModelUsage>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(model_id, 'unknown'), COUNT(*), COALESCE(SUM(tokens), 0)
+             FROM messages
+             WHERE role = 'assistant' AND tokens IS NOT NULL
+             GROUP BY model_id
+             ORDER BY SUM(tokens) DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ModelUsage {
+                model_id: row.get(0)?,
+                messages: row.get(1)?,
+                tokens: row.get(2)?,
+            })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
