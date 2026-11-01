@@ -1,6 +1,6 @@
 import { For, Show, createSignal, onMount } from "solid-js";
 import { api } from "../api";
-import type { AppInfo, BackupInfo, LocalModelRow, LogTail, SelfCheckItem, WebConfigView, WebTestResult } from "../types";
+import type { AppInfo, BackupInfo, LogTail, ModelInfo, SelfCheckItem, WebConfigView, WebTestResult } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function SettingsView() {
@@ -29,7 +29,7 @@ export default function SettingsView() {
   const [logBusy, setLogBusy] = createSignal(false);
   const [checks, setChecks] = createSignal<SelfCheckItem[]>([]);
   const [checkBusy, setCheckBusy] = createSignal(false);
-  const [localModels, setLocalModels] = createSignal<LocalModelRow[]>([]);
+  const [embeddingModels, setEmbeddingModels] = createSignal<ModelInfo[]>([]);
   const [embeddingModel, setEmbeddingModel] = createSignal("");
   const [embeddingBusy, setEmbeddingBusy] = createSignal(false);
 
@@ -262,7 +262,10 @@ export default function SettingsView() {
     await loadWeb();
     await loadBackupInfo();
     setEmbeddingModel((await api.ragEmbeddingGet()) ?? "");
-    setLocalModels(await api.localModelsList());
+    const all = await api.modelsList();
+    setEmbeddingModels(
+      all.filter((model) => model.role === "embedding" || model.kind === "local"),
+    );
   });
 
   return (
@@ -570,17 +573,23 @@ export default function SettingsView() {
             onChange={(event) => setEmbeddingModel(event.currentTarget.value)}
           >
             <option value="">Только FTS5</option>
-            <For each={localModels()}>
-              {(model) => <option value={`local/${model.id}`}>{model.label}</option>}
+            <For each={embeddingModels()}>
+              {(model) => (
+                <option value={model.id}>
+                  {model.label}
+                  {model.kind === "cloud" ? ` · ${model.provider}` : ""}
+                </option>
+              )}
             </For>
           </select>
           <button class="btn" onClick={() => void saveEmbedding()} disabled={embeddingBusy()}>
             {embeddingBusy() ? "Сохраняю…" : "Сохранить"}
           </button>
         </div>
-        <Show when={localModels().length === 0}>
+        <Show when={embeddingModels().length === 0}>
           <p class="muted small">
-            Локальных моделей нет. Добавьте модель эмбеддингов в «Моделях».
+            Нет моделей эмбеддингов. Добавьте локальную IR-модель в «Моделях» или назначьте
+            роль «эмбеддинги» облачной модели в «Провайдерах».
           </p>
         </Show>
       </section>

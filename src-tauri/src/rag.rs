@@ -315,6 +315,11 @@ async fn embed_texts(
     model_id: &str,
     texts: &[String],
 ) -> Result<Vec<Vec<f32>>> {
+    if !model_id.starts_with("local/") {
+        if let Some((provider_id, model)) = model_id.split_once('/') {
+            return embed_cloud(state, provider_id, model, texts).await;
+        }
+    }
     let base = state.engine_base().await?;
     let short = model_id.strip_prefix("local/").unwrap_or(model_id);
     let body = serde_json::json!({ "model": short, "texts": texts });
@@ -339,6 +344,59 @@ async fn embed_texts(
         .get("vectors")
         .and_then(|v| v.as_array())
         .ok_or_else(|| anyhow::anyhow!("движок не вернул векторы"))?;
+    parse_vectors(vectors)
+}
+
+async fn embed_cloud(
+    state: &AppState,
+    provider_id: &str,
+    model: &str,
+    texts: &[String],
+) -> Result<Vec<Vec<f32>>> {
+    let provider = state
+        .db
+        .provider_get(provider_id)?
+        .ok_or_else(|| anyhow::anyhow!("Провайдер «{provider_id}» не найден"))?;
+    if provider.kind == "anthropic" {
+        bail!("Anthropic не поддерживает эмбеддинги — выберите OpenAI-совместимую модель");
+    }
+    let key = crate::secrets::get_key(state, provider_id)?
+        .ok_or_else(|| anyhow::anyhow!("У провайдера «{provider_id}» нет ключа"))?;
+    let url = format!("{}/embeddings", provider.base_url.trim_end_matches('/'));
+    let resp = state
+        .client
+        .post(url)
+        .bearer_auth(key)
+        .json(&serde_json::json!({ "model": model, "input": texts }))
+        .timeout(std::time::Duration::from_secs(300))
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        let message = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|value| value.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| format!("провайдер вернул {status}"));
+        bail!("{message}");
+    }
+    let value: serde_json::Value = resp.json().await?;
+    let data = value
+        .get("data")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("провайдер не вернул эмбеддинги"))?;
+    let vectors: Vec<serde_json::Value> = data
+        .iter()
+        .map(|item| {
+            item.get("embedding")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("в ответе нет embedding"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    parse_vectors(&vectors)
+}
+
+fn parse_vectors(vectors: &[serde_json::Value]) -> Result<Vec<Vec<f32>>> {
     let mut out = Vec::with_capacity(vectors.len());
     for vector in vectors {
         let items = vector
