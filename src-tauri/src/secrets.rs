@@ -76,38 +76,6 @@ pub fn delete_key(state: &AppState, provider_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Переносит ключи из прежней записи Credential Manager.
-pub fn migrate_legacy_keys(db: &crate::db::Db) {
-    let mut accounts: Vec<String> = db
-        .providers_list()
-        .map(|rows| rows.iter().map(|provider| provider.id.clone()).collect())
-        .unwrap_or_default();
-    for name in ["tavily", "brave", "google"] {
-        accounts.push(format!("web:{name}"));
-    }
-    for provider_id in accounts {
-        let account = account(&provider_id);
-        let legacy = match keyring::Entry::new("legamind", &account) {
-            Ok(entry) => entry,
-            Err(_) => continue,
-        };
-        let current = match keyring::Entry::new(SERVICE, &account) {
-            Ok(entry) => entry,
-            Err(_) => continue,
-        };
-        if current.get_password().is_ok() {
-            continue;
-        }
-        if let Ok(key) = legacy.get_password() {
-            let _ = current.set_password(&key);
-            let _ = crate::logging::log_line(
-                "app.log",
-                &format!("migrated key for {provider_id} from legacy keyring"),
-            );
-        }
-    }
-}
-
 #[cfg(windows)]
 pub(crate) mod dpapi {
     use anyhow::{bail, Result};

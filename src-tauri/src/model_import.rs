@@ -1,11 +1,11 @@
 //! Мастер локальных моделей: проверка IR-папки и загрузка готовых OpenVINO IR
 //! с Hugging Face.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::AppState;
 
