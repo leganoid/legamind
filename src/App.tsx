@@ -10,6 +10,7 @@ import SettingsView from "./components/SettingsView";
 import SkillsView from "./components/SkillsView";
 import LearningView from "./components/LearningView";
 import HelpView from "./components/HelpView";
+import Tour from "./components/Tour";
 
 type View =
   | "chat"
@@ -52,6 +53,14 @@ export default function App() {
   const [paletteQuery, setPaletteQuery] = createSignal("");
   const [paletteIndex, setPaletteIndex] = createSignal(0);
   const [paletteSessions, setPaletteSessions] = createSignal<Session[]>([]);
+  const [tourOpen, setTourOpen] = createSignal(
+    localStorage.getItem("legamind.tour.v2.done") !== "1",
+  );
+
+  const closeTour = () => {
+    localStorage.setItem("legamind.tour.v2.done", "1");
+    setTourOpen(false);
+  };
 
   const providerLabels = createMemo(() => {
     const map: Record<string, string> = { local: "Локальные" };
@@ -204,6 +213,7 @@ export default function App() {
       if (event.key === "Escape" && paletteOpen()) closePalette();
     });
     window.addEventListener("beforeunload", () => window.clearInterval(timer));
+    window.addEventListener("legamind:start-tour", () => setTourOpen(true));
     window.addEventListener("legamind:sessions", (event) => {
       const detail = (event as CustomEvent<Session[]>).detail;
       if (Array.isArray(detail)) setPaletteSessions(detail);
@@ -323,6 +333,9 @@ export default function App() {
             </div>
           </div>
         </div>
+      </Show>
+      <Show when={tourOpen()}>
+        <Tour onClose={closeTour} />
       </Show>
     </div>
   );

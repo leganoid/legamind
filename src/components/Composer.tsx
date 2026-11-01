@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { PickedAttachment } from "../types";
 
 interface Props {
@@ -49,6 +49,17 @@ export default function Composer(props: Props) {
     const value = text();
     if (!value.startsWith("/") || value.includes("\n") || value.includes(" ")) return [];
     return COMMANDS.filter((hint) => hint.cmd.startsWith(value));
+  });
+
+  const focusComposer = () => {
+    inputRef?.focus();
+  };
+
+  onMount(() => {
+    window.addEventListener("legamind:focus-composer", focusComposer);
+  });
+  onCleanup(() => {
+    window.removeEventListener("legamind:focus-composer", focusComposer);
   });
 
   const submit = () => {

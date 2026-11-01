@@ -1879,3 +1879,37 @@ label.inline {
   background: var(--panel-2);
   font-size: 12px;
 }
+
+.tour-card {
+  width: min(560px, 92vw);
+  padding: 22px 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.tour-card h2 {
+  margin: 10px 0 8px;
+}
+
+.tour-card p {
+  min-height: 70px;
+  line-height: 1.55;
+}
+
+.tour-progress {
+  display: flex;
+  gap: 6px;
+}
+
+.tour-dot {
+  width: 26px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.tour-dot.active {
+  background: var(--accent);
+}

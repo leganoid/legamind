@@ -10,6 +10,12 @@ export default function HelpView(props: Props) {
           <h1>Помощь</h1>
           <p class="muted small">Коротко о том, как всё устроено и что делать в частых случаях.</p>
         </div>
+        <button
+          class="btn ghost"
+          onClick={() => window.dispatchEvent(new Event("legamind:start-tour"))}
+        >
+          ✨ Пройти тур заново
+        </button>
       </header>
 
       <section class="card">
@@ -65,6 +71,12 @@ export default function HelpView(props: Props) {
           <dd>Command palette: переход по разделам и быстрые действия.</dd>
           <dt>Ctrl+N</dt>
           <dd>Новая сессия чата.</dd>
+          <dt>Alt+↑ / Alt+↓</dt>
+          <dd>Предыдущая / следующая сессия.</dd>
+          <dt>Alt+C</dt>
+          <dd>Фокус в поле ввода сообщения.</dd>
+          <dt>Ctrl+Enter</dt>
+          <dd>Отправить сообщение из любого места поля ввода.</dd>
           <dt>Enter / Shift+Enter</dt>
           <dd>Отправить сообщение / перенос строки.</dd>
           <dt>↑ / ↓ / Tab</dt>

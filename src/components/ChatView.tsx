@@ -400,6 +400,27 @@ export default function ChatView(props: Props) {
   window.addEventListener("legamind:open-session", onPaletteSession);
   onCleanup(() => window.removeEventListener("legamind:open-session", onPaletteSession));
 
+  onMount(() => {
+    const onHotkey = (event: KeyboardEvent) => {
+      if (event.altKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+        event.preventDefault();
+        const list = sessions();
+        if (list.length === 0) return;
+        const current = list.findIndex((item) => item.id === activeId());
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        const next = list[(current + step + list.length) % list.length];
+        if (next) void openSession(next.id);
+        return;
+      }
+      if (event.altKey && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        window.dispatchEvent(new Event("legamind:focus-composer"));
+      }
+    };
+    window.addEventListener("keydown", onHotkey);
+    onCleanup(() => window.removeEventListener("keydown", onHotkey));
+  });
+
   const createSession = async () => {
     const chosen = modelId() || defaultModel();
     if (!chosen) {
