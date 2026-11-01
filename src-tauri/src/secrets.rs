@@ -76,7 +76,7 @@ pub fn delete_key(state: &AppState, provider_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Переносит ключи из старого сервиса Credential Manager ("legamind").
+/// Переносит ключи из прежней записи Credential Manager.
 pub fn migrate_legacy_keys(db: &crate::db::Db) {
     let mut accounts: Vec<String> = db
         .providers_list()

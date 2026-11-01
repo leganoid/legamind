@@ -210,7 +210,7 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
     Ok(())
 }
 
-/// Переносит данные из старого имени `com.legamind.app` в `com.legamind.app`.
+/// Переносит данные из прежнего идентификатора приложения в `com.legamind.app`.
 fn migrate_legacy_data(new_dir: &std::path::Path) {
     let Some(local) = std::env::var("APPDATA").ok() else {
         return;

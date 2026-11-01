@@ -190,3 +190,11 @@ RAG локальный, без внешних моделей: `/index` или к
 
 MIT. См. [LICENSE](LICENSE).
 
+
+## Правовая информация
+
+- Лицензия: [MIT](LICENSE).
+- Сторонние компоненты: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), тексты — в [licenses/](licenses/).
+- Название и товарные знаки: [TRADEMARK.md](TRADEMARK.md).
+- Приватность: [PRIVACY.md](PRIVACY.md).
+
