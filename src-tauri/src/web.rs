@@ -1539,8 +1539,79 @@ pub fn should_search(text: &str) -> bool {
     if query.chars().count() < 10 {
         return false;
     }
+    let lower = query.to_lowercase();
+
+    // Локальные задачи (файлы, правки, код) не должны дёргать интернет.
+    if looks_like_local_task(&lower) {
+        return false;
+    }
     let words = query.split_whitespace().count();
-    words >= 3 || query.chars().count() >= 25
+    if words < 3 && query.chars().count() < 25 {
+        return false;
+    }
+    has_web_intent(&lower) || is_technical_query(&lower)
+}
+
+fn looks_like_local_task(query: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "создай",
+        "сделай",
+        "измени",
+        "удали",
+        "запиши",
+        "прочитай",
+        "открой",
+        "переименуй",
+        "запусти",
+        "выполни",
+        "добавь",
+        "обнови",
+        "исправь",
+        "напиши файл",
+        "сгенерируй файл",
+        "приложен",
+        "в файле",
+        "в папке",
+        "в проекте",
+        "рабочей папке",
+        "diff",
+        "readme",
+        ".txt",
+        ".md",
+        ".rs",
+        ".ts",
+        ".json",
+        ".py",
+        "read_file",
+        "write_file",
+        "apply_patch",
+    ];
+    MARKERS.iter().any(|marker| query.contains(marker))
+}
+
+fn has_web_intent(query: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "найди",
+        "поищи",
+        "в интернете",
+        "в сети",
+        "последн",
+        "новост",
+        "актуальн",
+        "курс",
+        "цена",
+        "стоимость",
+        "кто такой",
+        "что такое",
+        "как работает",
+        "документац",
+        "сравни",
+        "обзор",
+        "релиз",
+        "2025",
+        "2026",
+    ];
+    MARKERS.iter().any(|marker| query.contains(marker))
 }
 
 /// Поиск для чата: возвращает блок и источники; ошибки не роняют ответ модели.
@@ -1582,6 +1653,15 @@ pub fn provider_status(state: &AppState) -> BTreeMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_tasks_skip_web_search() {
+        assert!(!should_search("Создай perm-one.txt с текстом один."));
+        assert!(!should_search("Прочитай файл notes.md и перескажи"));
+        assert!(!should_search("Исправь ошибку в файле main.rs"));
+        assert!(should_search("Найди в интернете последние новости OpenVINO"));
+        assert!(should_search("Что такое квантовый компьютер и как он работает"));
+    }
 
     const FIXTURE: &str = r#"
     <div class="result results_links results_links_deep web-result">
