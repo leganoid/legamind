@@ -1,4 +1,6 @@
 import { For, Show, createSignal, onMount } from "solid-js";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
 import type { AppInfo, BackupInfo, LogTail, ModelInfo, SelfCheckItem, WebConfigView, WebTestResult } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
@@ -32,6 +34,28 @@ export default function SettingsView() {
   const [embeddingModels, setEmbeddingModels] = createSignal<ModelInfo[]>([]);
   const [embeddingModel, setEmbeddingModel] = createSignal("");
   const [embeddingBusy, setEmbeddingBusy] = createSignal(false);
+  const [updateBusy, setUpdateBusy] = createSignal(false);
+
+  const checkUpdates = async () => {
+    setUpdateBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const update = await check();
+      if (!update) {
+        setNotice("Обновлений нет — установлена последняя версия");
+        return;
+      }
+      setNotice(`Доступно обновление ${update.version}. Скачиваю и устанавливаю…`);
+      await update.downloadAndInstall();
+      setNotice("Обновление установлено, перезапускаю…");
+      await relaunch();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
 
   const saveEmbedding = async () => {
     setEmbeddingBusy(true);
@@ -447,6 +471,15 @@ export default function SettingsView() {
       </Show>
 
       <Show when={tab() === "app"}>
+      <section class="card">
+        <h2>Обновления</h2>
+        <p class="muted small">
+          Текущая версия: {info()?.version ?? "…"}. Обновления скачиваются с GitHub Releases.
+        </p>
+        <button class="btn" onClick={() => void checkUpdates()} disabled={updateBusy()}>
+          {updateBusy() ? "Проверяю…" : "🔄 Проверить обновления"}
+        </button>
+      </section>
       <section class="card">
         <h2>Оформление</h2>
         <div class="row">
