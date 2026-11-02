@@ -30,6 +30,7 @@ import type {
   MessageToolRow,
   ModelInfo,
   ModelUsage,
+  ImportResult,
   PickedAttachment,
   ProviderInput,
   ProviderModelRow,
@@ -144,6 +145,7 @@ export const api = {
   messageTools: (sessionId: string) =>
     invoke<MessageToolRow[]>("message_tools", { sessionId }),
   usageStats: () => invoke<ModelUsage[]>("usage_stats"),
+  importChat: (path: string) => invoke<ImportResult>("import_chat", { path }),
   usagePricesGet: () => invoke<Record<string, number>>("usage_prices_get"),
   usagePricesSet: (prices: Record<string, number>) =>
     invoke<void>("usage_prices_set", { prices }),

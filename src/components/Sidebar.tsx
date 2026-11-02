@@ -9,6 +9,7 @@ interface Props {
   activeId: string | null;
   onSelect: (id: string, messageId?: string) => void;
   onCreate: () => void;
+  onImport: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onPin: (id: string, pinned: boolean) => void;
@@ -58,6 +59,9 @@ export default function Sidebar(props: Props) {
         <span>Сессии</span>
         <button class="btn small" title="Новая сессия (Ctrl+N)" onClick={() => props.onCreate()}>
           + Новая
+        </button>
+        <button class="btn small ghost" title="Импорт чата (JSON/Markdown)" onClick={() => props.onImport()}>
+          📥
         </button>
       </div>
 

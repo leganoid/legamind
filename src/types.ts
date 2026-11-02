@@ -468,6 +468,12 @@ export interface ModelUsage {
   tokens: number;
 }
 
+export interface ImportResult {
+  session_id: string;
+  title: string;
+  messages: number;
+}
+
 export interface PickedAttachment {
   name: string;
   path: string;

@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import type {
   ChatDeltaPayload,
@@ -435,6 +436,22 @@ export default function ChatView(props: Props) {
     window.addEventListener("keydown", onHotkey);
     onCleanup(() => window.removeEventListener("keydown", onHotkey));
   });
+
+  const importChat = async () => {
+    try {
+      const picked = await open({
+        multiple: false,
+        filters: [{ name: "Чат", extensions: ["json", "md", "markdown", "txt"] }],
+      });
+      if (!picked || Array.isArray(picked)) return;
+      const result = await api.importChat(picked);
+      await refreshSessions();
+      await openSession(result.session_id);
+      setNotice(`Импортировано ${result.messages} сообщений: ${result.title}`);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
 
   const createSession = async () => {
     const chosen = modelId() || defaultModel();
@@ -889,6 +906,7 @@ export default function ChatView(props: Props) {
         activeId={activeId()}
         onSelect={(id, messageId) => openSession(id, messageId)}
         onCreate={createSession}
+        onImport={() => void importChat()}
         onRename={renameSession}
         onDelete={deleteSession}
         onPin={pinSession}

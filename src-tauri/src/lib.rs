@@ -8,7 +8,8 @@ pub mod learning;
 pub mod memory;
 pub mod models;
 pub mod providers;
-pub mod rag;
+pub mod import;
+mod rag;
 pub mod secrets;
 pub mod sidecar;
 pub mod skills;
@@ -206,6 +207,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -325,6 +327,7 @@ pub fn run() {
             chat::usage_stats,
             chat::usage_prices_get,
             chat::usage_prices_set,
+            import::import_chat,
             chat::message_tools,
             workspace::pick_folder,
             workspace::session_set_workdir,
