@@ -263,6 +263,7 @@ mod tests {
             trust: "workspace".into(),
             reasoning: None,
             pinned: false,
+            folder: String::new(),
         };
         init_project(&dir, &session).expect("init");
         assert!(dir.join(".legamind").join("session.json").exists());

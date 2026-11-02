@@ -324,6 +324,7 @@ pub fn run() {
             chat::chat_command,
             chat::sources_list,
             chat::messages_search,
+            chat::sessions_set_folder,
             chat::usage_stats,
             chat::usage_prices_get,
             chat::usage_prices_set,

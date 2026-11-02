@@ -1239,6 +1239,18 @@ pub async fn message_tools(
 
 /// Поиск по сообщениям и названиям сессий для боковой панели.
 #[tauri::command]
+pub fn sessions_set_folder(
+    state: State<'_, AppState>,
+    id: String,
+    folder: String,
+) -> Result<(), String> {
+    state
+        .db
+        .session_set_folder(&id, &folder)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn usage_prices_get(
     state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, f64>, String> {

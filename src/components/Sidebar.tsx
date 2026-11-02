@@ -1,4 +1,4 @@
-import { For, Show, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import { api } from "../api";
 import type { MessageHitRow, Session } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
@@ -13,6 +13,7 @@ interface Props {
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onFolder: (id: string, folder: string) => void;
 }
 
 export default function Sidebar(props: Props) {
@@ -20,6 +21,7 @@ export default function Sidebar(props: Props) {
   const [hits, setHits] = createSignal<MessageHitRow[]>([]);
   const [pendingDelete, setPendingDelete] = createSignal<Session | null>(null);
   const [renameTarget, setRenameTarget] = createSignal<Session | null>(null);
+  const [folderTarget, setFolderTarget] = createSignal<Session | null>(null);
   let timer: number | undefined;
 
   const filtered = () => {
@@ -28,8 +30,22 @@ export default function Sidebar(props: Props) {
     return props.sessions.filter((session) => session.title.toLowerCase().includes(q));
   };
 
-  const onSearch = (value: string) => {
-    setQuery(value);
+  const groups = createMemo(() => {
+    const map = new Map<string, Session[]>();
+    for (const session of filtered()) {
+      const key = session.folder?.trim() ?? "";
+      const list = map.get(key) ?? [];
+      list.push(session);
+      map.set(key, list);
+    }
+    return [...map.entries()].sort((a, b) => {
+      if (!a[0]) return 1;
+      if (!b[0]) return -1;
+      return a[0].localeCompare(b[0], "ru");
+    });
+  });
+
+  const onSearch = (value: string) => {    setQuery(value);
     window.clearTimeout(timer);
     const q = value.trim();
     if (q.length < 2) {
@@ -97,48 +113,67 @@ export default function Sidebar(props: Props) {
         <Show when={props.sessions.length > 0 && filtered().length === 0}>
           <p class="muted small pad">Сессии не найдены</p>
         </Show>
-        <For each={filtered()}>
-          {(session) => (
-            <div
-              classList={{ "session-item": true, active: session.id === props.activeId }}
-              onClick={() => props.onSelect(session.id)}
-            >
-              <div class="session-title" title={session.title}>
-                {session.pinned ? "📌 " : ""}
-                {session.title}
-              </div>
-              <div class="session-actions">
-                <button
-                  class="icon-btn"
-                  title={session.pinned ? "Открепить" : "Закрепить"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onPin(session.id, !session.pinned);
-                  }}
-                >
-                  {session.pinned ? "📍" : "📌"}
-                </button>
-                <button
-                  class="icon-btn"
-                  title="Переименовать"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    rename(session);
-                  }}
-                >
-                  ✎
-                </button>
-                <button
-                  class="icon-btn danger"
-                  title="Удалить"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    remove(session);
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
+        <For each={groups()}>
+          {([folder, list]) => (
+            <div class="session-group">
+              <Show when={folder}>
+                <div class="session-folder">📁 {folder}</div>
+              </Show>
+              <For each={list}>
+                {(session) => (
+                  <div
+                    classList={{ "session-item": true, active: session.id === props.activeId }}
+                    onClick={() => props.onSelect(session.id)}
+                  >
+                    <div class="session-title" title={session.title}>
+                      {session.pinned ? "📌 " : ""}
+                      {session.title}
+                    </div>
+                    <div class="session-actions">
+                      <button
+                        class="icon-btn"
+                        title={session.pinned ? "Открепить" : "Закрепить"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.onPin(session.id, !session.pinned);
+                        }}
+                      >
+                        {session.pinned ? "📍" : "📌"}
+                      </button>
+                      <button
+                        class="icon-btn"
+                        title="Папка"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFolderTarget(session);
+                        }}
+                      >
+                        📁
+                      </button>
+                      <button
+                        class="icon-btn"
+                        title="Переименовать"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          rename(session);
+                        }}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        class="icon-btn danger"
+                        title="Удалить"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          remove(session);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </For>
             </div>
           )}
         </For>
@@ -156,6 +191,22 @@ export default function Sidebar(props: Props) {
           if (session) props.onRename(session.id, title);
         }}
         onCancel={() => setRenameTarget(null)}
+      />
+
+      <PromptDialog
+        open={folderTarget() !== null}
+        title="Папка сессии"
+        label="Название папки (пусто — убрать из папки)"
+        initial={folderTarget()?.folder ?? ""}
+        placeholder="Без папки"
+        allowEmpty
+        confirmLabel="Сохранить"
+        onConfirm={(folder) => {
+          const session = folderTarget();
+          setFolderTarget(null);
+          if (session) props.onFolder(session.id, folder);
+        }}
+        onCancel={() => setFolderTarget(null)}
       />
 
       <ConfirmDialog

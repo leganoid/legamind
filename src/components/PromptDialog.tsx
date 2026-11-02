@@ -7,6 +7,7 @@ interface Props {
   initial?: string;
   placeholder?: string;
   confirmLabel?: string;
+  allowEmpty?: boolean;
   onConfirm: (value: string) => void;
   onCancel: () => void;
 }
@@ -20,7 +21,7 @@ export default function PromptDialog(props: Props) {
 
   const confirm = () => {
     const text = value().trim();
-    if (!text) return;
+    if (!text && !props.allowEmpty) return;
     props.onConfirm(text);
   };
 
@@ -50,7 +51,7 @@ export default function PromptDialog(props: Props) {
             />
           </label>
           <div class="modal-actions">
-            <button class="btn primary" onClick={confirm} disabled={!value().trim()}>
+            <button class="btn primary" onClick={confirm} disabled={!value().trim() && !props.allowEmpty}>
               {props.confirmLabel ?? "Сохранить"}
             </button>
             <button class="btn ghost" onClick={props.onCancel}>

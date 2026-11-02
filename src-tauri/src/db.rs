@@ -37,6 +37,8 @@ pub struct Session {
     pub reasoning: Option<String>,
     /// Закреплена ли сессия (показывается сверху).
     pub pinned: bool,
+    /// Папка сессии (пустая строка — без папки).
+    pub folder: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -698,6 +700,13 @@ impl Db {
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (16)", [])?;
         }
+
+        if current < 17 {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN folder TEXT NOT NULL DEFAULT '';",
+            )?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (17)", [])?;
+        }
         Ok(())
     }
 
@@ -705,7 +714,7 @@ impl Db {
     pub fn sessions_list(&self) -> Result<Vec<Session>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning, pinned
+            "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning, pinned, folder
              FROM sessions ORDER BY pinned DESC, updated_at DESC",
         )?;
         let rows = stmt
@@ -721,6 +730,7 @@ impl Db {
                     trust: row.get(7)?,
                     reasoning: row.get(8)?,
                     pinned: row.get::<_, i64>(9)? != 0,
+                    folder: row.get(10)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -731,7 +741,7 @@ impl Db {
         let conn = self.conn();
         Ok(conn
             .query_row(
-                "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning, pinned
+                "SELECT id, title, model_id, created_at, updated_at, workdir, mode, trust, reasoning, pinned, folder
                  FROM sessions WHERE id = ?1",
                 params![id],
                 |row| {
@@ -746,6 +756,7 @@ impl Db {
                         trust: row.get(7)?,
                         reasoning: row.get(8)?,
                         pinned: row.get::<_, i64>(9)? != 0,
+                        folder: row.get(10)?,
                     })
                 },
             )
@@ -764,6 +775,7 @@ impl Db {
             trust: "workspace".to_string(),
             reasoning: None,
             pinned: false,
+            folder: String::new(),
         };
         let conn = self.conn();
         conn.execute(
@@ -778,6 +790,15 @@ impl Db {
         conn.execute(
             "UPDATE sessions SET pinned = ?2 WHERE id = ?1",
             params![id, if pinned { 1 } else { 0 }],
+        )?;
+        Ok(())
+    }
+
+    pub fn session_set_folder(&self, id: &str, folder: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE sessions SET folder = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, folder.trim(), now()],
         )?;
         Ok(())
     }
@@ -2252,6 +2273,18 @@ mod tests {
         assert!(list[0].pinned);
         assert_eq!(list[1].id, second.id);
         assert!(!list[1].pinned);
+    }
+
+    #[test]
+    fn session_folder_roundtrip() {
+        let db = Db::open_memory().unwrap();
+        let session = db.session_create("Папка", "local/test").unwrap();
+        assert_eq!(session.folder, "");
+        db.session_set_folder(&session.id, "  Работа  ").unwrap();
+        let loaded = db.session_get(&session.id).unwrap().unwrap();
+        assert_eq!(loaded.folder, "Работа");
+        db.session_set_folder(&session.id, "").unwrap();
+        assert_eq!(db.session_get(&session.id).unwrap().unwrap().folder, "");
     }
 
     #[test]

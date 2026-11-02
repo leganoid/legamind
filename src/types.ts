@@ -11,6 +11,7 @@ export interface Session {
   trust: "read_only" | "workspace" | "full";
   reasoning: string | null;
   pinned: boolean;
+  folder: string;
 }
 
 export interface MessageHitRow {

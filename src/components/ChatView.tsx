@@ -453,6 +453,11 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const setSessionFolder = async (id: string, folder: string) => {
+    await api.sessionsSetFolder(id, folder);
+    await refreshSessions();
+  };
+
   const createSession = async () => {
     const chosen = modelId() || defaultModel();
     if (!chosen) {
@@ -910,6 +915,7 @@ export default function ChatView(props: Props) {
         onRename={renameSession}
         onDelete={deleteSession}
         onPin={pinSession}
+        onFolder={(id, folder) => void setSessionFolder(id, folder)}
       />
       <section class="chat-main">
         <header class="chat-head">
