@@ -144,6 +144,9 @@ export const api = {
   messageTools: (sessionId: string) =>
     invoke<MessageToolRow[]>("message_tools", { sessionId }),
   usageStats: () => invoke<ModelUsage[]>("usage_stats"),
+  usagePricesGet: () => invoke<Record<string, number>>("usage_prices_get"),
+  usagePricesSet: (prices: Record<string, number>) =>
+    invoke<void>("usage_prices_set", { prices }),
   sessionPermissionsClear: (sessionId: string) =>
     invoke<void>("session_permissions_clear", { sessionId }),
   toolUndoLast: (sessionId: string) => invoke<string>("tool_undo_last", { sessionId }),

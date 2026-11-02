@@ -1239,6 +1239,30 @@ pub async fn message_tools(
 
 /// Поиск по сообщениям и названиям сессий для боковой панели.
 #[tauri::command]
+pub fn usage_prices_get(
+    state: State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, f64>, String> {
+    let raw = state
+        .db
+        .setting_get("model_prices")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "{}".to_string());
+    Ok(serde_json::from_str(&raw).unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn usage_prices_set(
+    state: State<'_, AppState>,
+    prices: std::collections::HashMap<String, f64>,
+) -> Result<(), String> {
+    let raw = serde_json::to_string(&prices).map_err(|e| e.to_string())?;
+    state
+        .db
+        .setting_set("model_prices", &raw)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn usage_stats(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::db::ModelUsage>, String> {

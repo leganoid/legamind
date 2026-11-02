@@ -2000,3 +2000,9 @@ label.inline {
   color: var(--muted);
   font-weight: 500;
 }
+
+.price-input {
+  width: 80px;
+  padding: 3px 6px;
+  font-size: 12px;
+}

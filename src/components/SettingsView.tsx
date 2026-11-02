@@ -56,11 +56,14 @@ export default function SettingsView() {
   const [updateBusy, setUpdateBusy] = createSignal(false);
   const [usage, setUsage] = createSignal<ModelUsage[]>([]);
   const [usageBusy, setUsageBusy] = createSignal(false);
+  const [prices, setPrices] = createSignal<Record<string, number>>({});
+  const [pricesBusy, setPricesBusy] = createSignal(false);
 
   const loadUsage = async () => {
     setUsageBusy(true);
     try {
       setUsage(await api.usageStats());
+      setPrices(await api.usagePricesGet());
     } catch (err) {
       setError(String(err));
     } finally {
@@ -68,8 +71,31 @@ export default function SettingsView() {
     }
   };
 
+  const savePrices = async () => {
+    setPricesBusy(true);
+    try {
+      await api.usagePricesSet(prices());
+      setNotice("Цены сохранены: оценка считается по выходным токенам.");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setPricesBusy(false);
+    }
+  };
+
+  const setPrice = (modelId: string, value: string) => {
+    const parsed = Number(value);
+    setPrices((prev) => ({
+      ...prev,
+      [modelId]: Number.isFinite(parsed) && parsed > 0 ? parsed : 0,
+    }));
+  };
+
   const totalTokens = () => usage().reduce((sum, row) => sum + row.tokens, 0);
   const totalMessages = () => usage().reduce((sum, row) => sum + row.messages, 0);
+  const costFor = (row: ModelUsage) =>
+    (row.tokens / 1_000_000) * (prices()[row.model_id] ?? 0);
+  const totalCost = () => usage().reduce((sum, row) => sum + costFor(row), 0);
 
   const checkUpdates = async () => {
     setUpdateBusy(true);
@@ -521,7 +547,8 @@ export default function SettingsView() {
         <h2>Расход токенов</h2>
         <p class="muted small">
           Сохраняются только токены ответов моделей. Всего: {totalMessages()} ответов,{" "}
-          {totalTokens().toLocaleString("ru-RU")} токенов.
+          {totalTokens().toLocaleString("ru-RU")} токенов. Оценка:{" "}
+          <strong>${totalCost().toFixed(4)}</strong> — по указанным ценам за 1M выходных токенов.
         </p>
         <Show when={usage().length > 0} fallback={<p class="muted small">Пока нет данных.</p>}>
           <table class="usage-table">
@@ -530,6 +557,8 @@ export default function SettingsView() {
                 <th>Модель</th>
                 <th>Ответов</th>
                 <th>Токенов</th>
+                <th>Цена за 1M, $</th>
+                <th>Оценка</th>
               </tr>
             </thead>
             <tbody>
@@ -539,15 +568,34 @@ export default function SettingsView() {
                     <td class="mono">{row.model_id}</td>
                     <td>{row.messages}</td>
                     <td>{row.tokens.toLocaleString("ru-RU")}</td>
+                    <td>
+                      <input
+                        class="price-input"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0"
+                        value={prices()[row.model_id] || ""}
+                        onInput={(event) =>
+                          setPrice(row.model_id, event.currentTarget.value)
+                        }
+                      />
+                    </td>
+                    <td>${costFor(row).toFixed(4)}</td>
                   </tr>
                 )}
               </For>
             </tbody>
           </table>
         </Show>
-        <button class="btn ghost" onClick={() => void loadUsage()} disabled={usageBusy()}>
-          {usageBusy() ? "Обновляю…" : "Обновить"}
-        </button>
+        <div class="row">
+          <button class="btn ghost" onClick={() => void loadUsage()} disabled={usageBusy()}>
+            {usageBusy() ? "Обновляю…" : "Обновить"}
+          </button>
+          <button class="btn" onClick={() => void savePrices()} disabled={pricesBusy()}>
+            {pricesBusy() ? "Сохраняю…" : "Сохранить цены"}
+          </button>
+        </div>
       </section>
 
       <section class="card">
