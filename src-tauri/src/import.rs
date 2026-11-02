@@ -156,8 +156,23 @@ pub async fn import_chat(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<ImportResult, String> {
-    let target = Path::new(&path);
-    let text = std::fs::read_to_string(target).map_err(|e| format!("Не удалось прочитать файл: {e}"))?;
+    let result = import_transcript_file(&state.db, Path::new(&path))?;
+    let _ = crate::logging::log_line(
+        "app.log",
+        &format!(
+            "chat imported: {path} -> {} ({} messages)",
+            result.session_id, result.messages
+        ),
+    );
+    Ok(result)
+}
+
+pub fn import_transcript_file(
+    db: &crate::db::Db,
+    target: &Path,
+) -> Result<ImportResult, String> {
+    let text =
+        std::fs::read_to_string(target).map_err(|e| format!("Не удалось прочитать файл: {e}"))?;
     if text.len() > 2_000_000 {
         return Err("Файл больше 2 МБ — импорт отменён".into());
     }
@@ -173,22 +188,13 @@ pub async fn import_chat(
         .and_then(|s| s.to_str())
         .unwrap_or("chat");
     let title = format!("Импорт: {stem}");
-    let session = state
-        .db
-        .session_create(&title, "")
-        .map_err(|e| e.to_string())?;
+    let session = db.session_create(&title, "").map_err(|e| e.to_string())?;
     let mut imported = 0usize;
     for (role, content) in &messages {
-        state
-            .db
-            .message_add(&session.id, role, content, None, None)
+        db.message_add(&session.id, role, content, None, None)
             .map_err(|e| e.to_string())?;
         imported += 1;
     }
-    let _ = crate::logging::log_line(
-        "app.log",
-        &format!("chat imported: {path} -> {} ({imported} messages)", session.id),
-    );
     Ok(ImportResult {
         session_id: session.id,
         title,
@@ -222,5 +228,28 @@ mod tests {
     #[test]
     fn rejects_plain_text() {
         assert!(parse_transcript("просто текст без ролей").is_none());
+    }
+
+    #[test]
+    fn imports_into_database() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!(
+                "legamind-import-test-{}.json",
+                std::process::id()
+            ));
+        std::fs::write(
+            &path,
+            r#"[{"role":"user","content":"вопрос"},{"role":"assistant","content":"ответ"}]"#,
+        )
+        .unwrap();
+        let db = crate::db::Db::open_memory().unwrap();
+        let result = import_transcript_file(&db, &path).unwrap();
+        assert_eq!(result.messages, 2);
+        let messages = db.messages_list(&result.session_id).unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[1].content, "ответ");
+        let _ = std::fs::remove_file(path);
     }
 }
