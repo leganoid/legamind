@@ -88,3 +88,13 @@ npx tauri build
 - Локальные модели не скачиваются автоматически — нужна папка IR.
 - Vision-модели: только облачные, заявленные как vision.
 - RAG — FTS5 без векторных эмбеддингов.
+
+## Автообновление и установщики
+
+- Сборка содержит два установщика: MSI (`Program Files`) и NSIS per-user (`%LOCALAPPDATA%`).
+- `latest.json` и `.sig` публикуются в GitHub Release; приложение проверяет
+  `https://github.com/leganoid/legamind/releases/latest/download/latest.json`.
+- Приватный ключ updater хранится в GitHub Secrets (`TAURI_SIGNING_PRIVATE_KEY`);
+  публичный — в `tauri.conf.json`. Ключ нельзя терять: без него обновления не подпишутся.
+- Выпуск: поднять версию в `package.json`, `tauri.conf.json`, `Cargo.toml`, поставить тег `vX.Y.Z`.
+- MSI и NSIS нельзя ставить поверх друг друга; для проверки NSIS нужна чистая машина.
