@@ -67,6 +67,8 @@ def facts() -> dict:
         "tool_message_linked": False,
         "chunks": 0,
         "rag_token_chunks": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
     }
     if session_id:
         result["messages"] = conn.execute(
@@ -77,6 +79,11 @@ def facts() -> dict:
             (session_id,),
         ).fetchone()
         result["assistant"] = row[0][:400] if row else None
+        usage = conn.execute(
+            "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(tokens), 0) FROM messages WHERE session_id = ? AND role = 'assistant'",
+            (session_id,),
+        ).fetchone()
+        result["input_tokens"], result["output_tokens"] = usage
         tool = conn.execute(
             "SELECT tool, path, message_id FROM tool_runs WHERE session_id = ? ORDER BY rowid DESC LIMIT 1",
             (session_id,),

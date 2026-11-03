@@ -174,6 +174,8 @@ for ($i = 0; $i -lt 25; $i++) {
     if ($facts.assistant -and $facts.assistant -match "E2E_RAG_TOKEN_246") { $ragAnswer = $true; break }
 }
 Report "Ответ по RAG" $ragAnswer "assistant=$($facts.assistant)"
+$tokenFacts = Get-Facts
+Report "Учёт входных токенов" ($tokenFacts.input_tokens -gt 0) "input=$($tokenFacts.input_tokens) output=$($tokenFacts.output_tokens)"
 
 # ---------------------------------------------------------------- 3. перезапуск
 $before = Get-Facts
