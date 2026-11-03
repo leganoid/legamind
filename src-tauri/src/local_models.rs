@@ -46,6 +46,88 @@ fn write_map(state: &AppState, map: &serde_json::Map<String, serde_json::Value>)
     Ok(())
 }
 
+/// Находит папки OpenVINO IR в C:\Models и добавляет их в конфиг.
+/// Уже добавленные по пути модели не дублируются.
+pub fn discover_models(state: &AppState) -> Result<usize> {
+    let configured = state
+        .db
+        .setting_get("local_models_dir")
+        .ok()
+        .flatten()
+        .filter(|value| !value.trim().is_empty());
+    let root = match configured {
+        Some(value) => PathBuf::from(value),
+        None => {
+            let default = PathBuf::from(r"C:\Models");
+            if default.is_dir() {
+                default
+            } else {
+                return Ok(0);
+            }
+        }
+    };
+    if !root.is_dir() {
+        return Ok(0);
+    }
+    let mut map = read_map(state)?;
+    let mut known: Vec<String> = map
+        .values()
+        .filter_map(|value| value.get("path").and_then(|v| v.as_str()))
+        .map(|value| value.replace('/', "\\").to_lowercase())
+        .collect();
+    let mut added = 0usize;
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return Ok(0);
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() || !path.join("openvino_model.xml").exists() {
+            continue;
+        }
+        let key = path.to_string_lossy().replace('/', "\\").to_lowercase();
+        if known.contains(&key) {
+            continue;
+        }
+        let base = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("model")
+            .to_string();
+        let mut id = base.clone();
+        let mut suffix = 2;
+        while map.contains_key(&id) {
+            id = format!("{base}-{suffix}");
+            suffix += 1;
+        }
+        let max_tokens = std::fs::read_to_string(path.join("config.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .and_then(|value| value.get("max_position_embeddings").and_then(|v| v.as_u64()))
+            .unwrap_or(32768)
+            .clamp(512, 32768) as u32;
+        let lower = base.to_lowercase();
+        let thinks = lower.contains("qwen3") || lower.contains("reason");
+        let size_gb = (dir_size(&path, 0) as f64 / 1_000_000_000.0 * 100.0).round() / 100.0;
+        map.insert(
+            id,
+            serde_json::json!({
+                "path": path.to_string_lossy(),
+                "label": base,
+                "device": "CPU",
+                "max_tokens": max_tokens,
+                "size_gb": size_gb,
+                "thinks": thinks
+            }),
+        );
+        known.push(key);
+        added += 1;
+    }
+    if added > 0 {
+        write_map(state, &map)?;
+    }
+    Ok(added)
+}
+
 fn dir_size(path: &Path, depth: usize) -> u64 {
     if depth > 3 {
         return 0;

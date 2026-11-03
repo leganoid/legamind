@@ -342,6 +342,26 @@ pub fn run() {
                 chat_images: Mutex::new(HashMap::new()),
             });
 
+            // Автопоиск IR-моделей в C:\Models — до запуска сайдкара.
+            {
+                let startup = app.state::<AppState>();
+                match local_models::discover_models(&startup) {
+                    Ok(count) if count > 0 => {
+                        let _ = logging::log_line(
+                            "app.log",
+                            &format!("local models discovered: {count}"),
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        let _ = logging::log_line(
+                            "app.log",
+                            &format!("local models discovery failed: {err}"),
+                        );
+                    }
+                }
+            }
+
             // Автокопия: проверка раз в час, фактически — не чаще раза в 24 часа.
             let backup_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

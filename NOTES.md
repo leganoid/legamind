@@ -983,3 +983,10 @@ Vision для Anthropic и локальных OpenVINO не реализован
 * E2E-прогон 13/13: добавлен шаг «Учёт входных токенов».
 * DeepSeek вернул usage: input=2526, output=56.
 * `fixture.py facts` отдаёт input_tokens/output_tokens.
+
+### Автопоиск C:\Models
+
+* При старте приложение сканирует C:\Models (или local_models_dir) и добавляет папки с openvino_model.xml.
+* Контекст берётся из config.json max_position_embeddings (clamp 32768), thinks — qwen3/reason.
+* Найдено 4 модели: qwen2.5-1.5b, qwen2.5-coder-7b, qwen3-14b, qwen3-coder-30b-a3b.
+* 98 тестов.
