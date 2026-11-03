@@ -197,21 +197,36 @@ async fn engine_restart(app: tauri::AppHandle, state: State<'_, AppState>) -> Re
     }
 }
 
-fn toggle_overlay(app: &tauri::AppHandle) {    if let Some(window) = app.get_webview_window("overlay") {
+fn hide_overlay(app: &tauri::AppHandle) {
+    let _ = app.global_shortcut().unregister("Escape");
+    if let Some(window) = app.get_webview_window("overlay") {
+        let _ = window.hide();
+    }
+}
+
+fn show_overlay(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("overlay") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        if let Err(err) = app.global_shortcut().register("Escape") {
+            let _ = logging::log_line("app.log", &format!("overlay escape failed: {err}"));
+        }
+    }
+}
+
+fn toggle_overlay(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("overlay") {
         if window.is_visible().unwrap_or(false) {
-            let _ = window.hide();
+            hide_overlay(app);
         } else {
-            let _ = window.show();
-            let _ = window.set_focus();
+            show_overlay(app);
         }
     }
 }
 
 #[tauri::command]
 fn overlay_hide(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("overlay") {
-        window.hide().map_err(|e| e.to_string())?;
-    }
+    hide_overlay(&app);
     Ok(())
 }
 
@@ -229,9 +244,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        toggle_overlay(app);
+                        if shortcut.to_string().to_lowercase().contains("escape") {
+                            hide_overlay(app);
+                        } else {
+                            toggle_overlay(app);
+                        }
                     }
                 })
                 .build(),
