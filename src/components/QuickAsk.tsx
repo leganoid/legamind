@@ -93,10 +93,10 @@ export default function QuickAsk() {
       if (event.key === "Escape") void hide();
     }}>
       <header class="quick-head">
-        <strong>Legamind · быстрый вопрос</strong>
         <button class="btn small ghost" onClick={() => void hide()} title="Закрыть (Esc)">
           ✕ Закрыть
         </button>
+        <strong>Legamind · быстрый вопрос</strong>
       </header>
       <div class="row quick-models">
         <select
@@ -141,6 +141,9 @@ export default function QuickAsk() {
       <div class="row">
         <button class="btn primary" onClick={() => void submit()} disabled={busy() || !prompt().trim()}>
           {busy() ? "Думаю…" : "Спросить"}
+        </button>
+        <button class="btn ghost" onClick={() => void hide()}>
+          Закрыть
         </button>
       </div>
       <Show when={error()}>

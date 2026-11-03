@@ -2116,3 +2116,12 @@ label.inline {
 .quick-head .btn {
   flex-shrink: 0;
 }
+
+.quick-overlay {
+  width: 760px;
+  max-width: 760px;
+}
+
+.quick-head {
+  justify-content: flex-start;
+}
