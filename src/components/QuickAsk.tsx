@@ -94,35 +94,36 @@ export default function QuickAsk() {
     }}>
       <header class="quick-head">
         <strong>Legamind · быстрый вопрос</strong>
-        <div class="row">
-          <select
-            value={modelId()}
-            onChange={(event) => setModelId(event.currentTarget.value)}
-          >
-            <Show when={localModels().length > 0} fallback={<option disabled>Локальные модели не найдены</option>}>
-              <optgroup label="Локальные">
-                <For each={localModels()}>
-                  {(model) => <option value={model.id}>{model.label}</option>}
-                </For>
-              </optgroup>
-            </Show>
-            <Show when={cloudModels().length > 0}>
-              <optgroup label="Облачные">
-                <For each={cloudModels()}>
-                  {(model) => (
-                    <option value={model.id}>
-                      {model.label} · {model.provider}
-                    </option>
-                  )}
-                </For>
-              </optgroup>
-            </Show>
-          </select>
-          <button class="btn small ghost" onClick={() => void hide()} title="Закрыть (Esc)">
-            ✕
-          </button>
-        </div>
+        <button class="btn small ghost" onClick={() => void hide()} title="Закрыть (Esc)">
+          ✕ Закрыть
+        </button>
       </header>
+      <div class="row quick-models">
+        <select
+          value={modelId()}
+          onChange={(event) => setModelId(event.currentTarget.value)}
+        >
+          <Show when={localModels().length > 0} fallback={<option disabled>Локальные модели не найдены</option>}>
+            <optgroup label="Локальные">
+              <For each={localModels()}>
+                {(model) => <option value={model.id}>{model.label}</option>}
+              </For>
+            </optgroup>
+          </Show>
+          <Show when={cloudModels().length > 0}>
+            <optgroup label="Облачные">
+              <For each={cloudModels()}>
+                {(model) => (
+                  <option value={model.id}>
+                    {model.label} · {model.provider}
+                  </option>
+                )}
+              </For>
+            </optgroup>
+          </Show>
+        </select>
+        <span class="muted small">Ctrl+Shift+Space — показать/скрыть</span>
+      </div>
       <textarea
         ref={area}
         class="quick-input"
@@ -141,7 +142,6 @@ export default function QuickAsk() {
         <button class="btn primary" onClick={() => void submit()} disabled={busy() || !prompt().trim()}>
           {busy() ? "Думаю…" : "Спросить"}
         </button>
-        <span class="muted small">Ctrl+Shift+Space — показать/скрыть</span>
       </div>
       <Show when={error()}>
         <div class="banner error">{error()}</div>

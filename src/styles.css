@@ -2103,3 +2103,16 @@ label.inline {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+
+.quick-models {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.quick-models select {
+  max-width: 320px;
+}
+
+.quick-head .btn {
+  flex-shrink: 0;
+}
