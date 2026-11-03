@@ -13,24 +13,59 @@ export default function QuickAsk() {
   const [error, setError] = createSignal<string | null>(null);
   let area: HTMLTextAreaElement | undefined;
 
-  onMount(async () => {
+  const localModels = () => models().filter((model) => model.kind === "local");
+  const cloudModels = () => models().filter((model) => model.kind !== "local");
+
+  const loadModels = async () => {
     try {
       const all = await api.modelsList();
-      const chat = all.filter((model) => model.role === "chat");
+      const chat = all.filter(
+        (model) =>
+          model.role === "chat" ||
+          (model.kind === "local" &&
+            model.role !== "embedding" &&
+            model.role !== "rerank"),
+      );
       setModels(chat);
-      setModelId(chat[0]?.id ?? "");
+      if (!chat.some((model) => model.id === modelId())) {
+        setModelId((chat.find((model) => model.kind === "local") ?? chat[0])?.id ?? "");
+      }
     } catch (err) {
       setError(String(err));
     }
+  };
+
+  onMount(async () => {
+    await loadModels();
     area?.focus();
     const unlisten: UnlistenFn = await listen<string>("quick:delta", (event) => {
       setAnswer((prev) => prev + event.payload);
     });
-    onCleanup(() => unlisten());
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") void hide();
+    };
+    document.addEventListener("keydown", onKey);
+    const unlistenFocus = await getCurrentWindow().onFocusChanged(({ payload }) => {
+      if (payload) {
+        void loadModels();
+        window.setTimeout(() => area?.focus(), 50);
+      } else {
+        void api.overlayHide().catch(() => undefined);
+      }
+    });
+    onCleanup(() => {
+      unlisten();
+      document.removeEventListener("keydown", onKey);
+      unlistenFocus();
+    });
   });
 
-  const hide = () => {
-    void getCurrentWindow().hide();
+  const hide = async () => {
+    try {
+      await api.overlayHide();
+    } catch {
+      await getCurrentWindow().hide();
+    }
   };
 
   const submit = async () => {
@@ -55,7 +90,7 @@ export default function QuickAsk() {
 
   return (
     <div class="quick-overlay" onKeyDown={(event) => {
-      if (event.key === "Escape") hide();
+      if (event.key === "Escape") void hide();
     }}>
       <header class="quick-head">
         <strong>Legamind · быстрый вопрос</strong>
@@ -64,11 +99,26 @@ export default function QuickAsk() {
             value={modelId()}
             onChange={(event) => setModelId(event.currentTarget.value)}
           >
-            <For each={models()}>
-              {(model) => <option value={model.id}>{model.label}</option>}
-            </For>
+            <Show when={localModels().length > 0} fallback={<option disabled>Локальные модели не найдены</option>}>
+              <optgroup label="Локальные">
+                <For each={localModels()}>
+                  {(model) => <option value={model.id}>{model.label}</option>}
+                </For>
+              </optgroup>
+            </Show>
+            <Show when={cloudModels().length > 0}>
+              <optgroup label="Облачные">
+                <For each={cloudModels()}>
+                  {(model) => (
+                    <option value={model.id}>
+                      {model.label} · {model.provider}
+                    </option>
+                  )}
+                </For>
+              </optgroup>
+            </Show>
           </select>
-          <button class="btn small ghost" onClick={hide} title="Закрыть (Esc)">
+          <button class="btn small ghost" onClick={() => void hide()} title="Закрыть (Esc)">
             ✕
           </button>
         </div>

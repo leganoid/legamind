@@ -197,8 +197,7 @@ async fn engine_restart(app: tauri::AppHandle, state: State<'_, AppState>) -> Re
     }
 }
 
-fn toggle_overlay(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("overlay") {
+fn toggle_overlay(app: &tauri::AppHandle) {    if let Some(window) = app.get_webview_window("overlay") {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
         } else {
@@ -206,6 +205,14 @@ fn toggle_overlay(app: &tauri::AppHandle) {
             let _ = window.set_focus();
         }
     }
+}
+
+#[tauri::command]
+fn overlay_hide(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("overlay") {
+        window.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -354,6 +361,7 @@ pub fn run() {
             chat::chat_command,
             chat::sources_list,
             chat::messages_search,
+            overlay_hide,
             chat::quick_ask,
             chat::sessions_set_folder,
             chat::usage_stats,

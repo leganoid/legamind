@@ -243,8 +243,14 @@ export default function App() {
           ))}
         </div>
         <div class="nav-foot muted small">
-          <Show when={models().filter((m) => m.kind === "local").length > 0} fallback="Движок не отвечает">
+          <Show
+            when={models().length > 0}
+            fallback={<span>Модели не загружены</span>}
+          >
             Локальных моделей: {models().filter((m) => m.kind === "local").length}
+            <Show when={models().filter((m) => m.kind === "local").length === 0}>
+              {" "}· добавьте в «Моделях»
+            </Show>
           </Show>
         </div>
       </nav>

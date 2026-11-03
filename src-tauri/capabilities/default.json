@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Базовые права окна Legamind",
   "windows": ["main", "overlay"],
-  "permissions": ["core:default", "opener:default", "updater:default", "process:default", "dialog:default"]
+  "permissions": ["core:default", "core:window:allow-hide", "core:window:allow-show", "core:window:allow-set-focus", "core:window:allow-close", "opener:default", "updater:default", "process:default", "dialog:default"]
 }
