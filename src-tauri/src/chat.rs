@@ -1239,6 +1239,50 @@ pub async fn message_tools(
 
 /// Поиск по сообщениям и названиям сессий для боковой панели.
 #[tauri::command]
+pub async fn quick_ask(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    prompt: String,
+    model_id: String,
+) -> Result<String, String> {
+    let prompt = prompt.trim();
+    if prompt.is_empty() {
+        return Err("Пустой вопрос".into());
+    }
+    let messages = vec![
+        ChatMessage::new(
+            "system",
+            "Ты — быстрый помощник Legamind. Отвечай кратко и по делу, без лишних вступлений.",
+        ),
+        ChatMessage::new("user", prompt),
+    ];
+    let params = ChatParams {
+        max_tokens: 1536,
+        ..Default::default()
+    };
+    let cancel = AtomicBool::new(false);
+    let mut text = String::new();
+    let outcome = {
+        let mut on_delta = |chunk: &str| {
+            text.push_str(chunk);
+            let _ = app.emit_to("overlay", "quick:delta", chunk.to_string());
+        };
+        let mut on_status = |_: &ChatStatus| {};
+        Router { state: &state }
+            .stream(&model_id, &messages, &params, &cancel, &mut on_delta, &mut on_status)
+            .await
+    }
+    .map_err(|e| e.to_string())?;
+    let answer = if outcome.text.is_empty() {
+        text
+    } else {
+        outcome.text
+    };
+    let _ = app.emit_to("overlay", "quick:done", answer.clone());
+    Ok(answer)
+}
+
+#[tauri::command]
 pub fn sessions_set_folder(
     state: State<'_, AppState>,
     id: String,

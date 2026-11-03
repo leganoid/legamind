@@ -146,6 +146,8 @@ export const api = {
     invoke<ToolRunRow[]>("tool_runs_list", { sessionId, limit }),
   messageTools: (sessionId: string) =>
     invoke<MessageToolRow[]>("message_tools", { sessionId }),
+  quickAsk: (prompt: string, modelId: string) =>
+    invoke<string>("quick_ask", { prompt, modelId }),
   usageStats: () => invoke<ModelUsage[]>("usage_stats"),
   importChat: (path: string) => invoke<ImportResult>("import_chat", { path }),
   usagePricesGet: () => invoke<Record<string, number>>("usage_prices_get"),

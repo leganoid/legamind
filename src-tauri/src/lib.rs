@@ -33,6 +33,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use tauri::{Manager, State};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use db::{ChatMessageRow, Db, Session};
 
@@ -196,6 +197,17 @@ async fn engine_restart(app: tauri::AppHandle, state: State<'_, AppState>) -> Re
     }
 }
 
+fn toggle_overlay(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("overlay") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
@@ -208,7 +220,25 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        toggle_overlay(app);
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
+            if let Err(err) = app
+                .global_shortcut()
+                .register("CommandOrControl+Shift+Space")
+            {
+                let _ = logging::log_line(
+                    "app.log",
+                    &format!("global shortcut failed: {err}"),
+                );
+            }
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let db_path = data_dir.join("legamind.db");
@@ -324,6 +354,7 @@ pub fn run() {
             chat::chat_command,
             chat::sources_list,
             chat::messages_search,
+            chat::quick_ask,
             chat::sessions_set_folder,
             chat::usage_stats,
             chat::usage_prices_get,

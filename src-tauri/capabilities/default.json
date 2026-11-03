@@ -2,6 +2,6 @@
   "$schema": "https://schema.tauri.app/capability/2",
   "identifier": "default",
   "description": "Базовые права окна Legamind",
-  "windows": ["main"],
+  "windows": ["main", "overlay"],
   "permissions": ["core:default", "opener:default", "updater:default", "process:default", "dialog:default"]
 }
