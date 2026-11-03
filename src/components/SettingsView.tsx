@@ -92,6 +92,7 @@ export default function SettingsView() {
   };
 
   const totalTokens = () => usage().reduce((sum, row) => sum + row.tokens, 0);
+  const totalInput = () => usage().reduce((sum, row) => sum + row.input_tokens, 0);
   const totalMessages = () => usage().reduce((sum, row) => sum + row.messages, 0);
   const costFor = (row: ModelUsage) =>
     (row.tokens / 1_000_000) * (prices()[row.model_id] ?? 0);
@@ -546,9 +547,9 @@ export default function SettingsView() {
       <section class="card">
         <h2>Расход токенов</h2>
         <p class="muted small">
-          Сохраняются только токены ответов моделей. Всего: {totalMessages()} ответов,{" "}
-          {totalTokens().toLocaleString("ru-RU")} токенов. Оценка:{" "}
-          <strong>${totalCost().toFixed(4)}</strong> — по указанным ценам за 1M выходных токенов.
+          Всего: {totalMessages()} ответов, вход: {totalInput().toLocaleString("ru-RU")},{" "}
+          выход: {totalTokens().toLocaleString("ru-RU")}. Оценка:{" "}
+          <strong>${totalCost().toFixed(4)}</strong> — по цене за 1M выходных токенов.
         </p>
         <Show when={usage().length > 0} fallback={<p class="muted small">Пока нет данных.</p>}>
           <table class="usage-table">
@@ -556,7 +557,8 @@ export default function SettingsView() {
               <tr>
                 <th>Модель</th>
                 <th>Ответов</th>
-                <th>Токенов</th>
+                <th>Вход</th>
+                <th>Выход</th>
                 <th>Цена за 1M, $</th>
                 <th>Оценка</th>
               </tr>
@@ -567,6 +569,7 @@ export default function SettingsView() {
                   <tr>
                     <td class="mono">{row.model_id}</td>
                     <td>{row.messages}</td>
+                    <td>{row.input_tokens.toLocaleString("ru-RU")}</td>
                     <td>{row.tokens.toLocaleString("ru-RU")}</td>
                     <td>
                       <input

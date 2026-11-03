@@ -184,6 +184,7 @@ pub fn local_label(model_id: &str) -> Option<&'static str> {
 pub struct ChatOutcome {
     pub text: String,
     pub tokens: u32,
+    pub input_tokens: Option<u32>,
     pub seconds: f64,
     pub stopped: bool,
 }
@@ -484,6 +485,7 @@ impl Router<'_> {
             "model": model,
             "messages": cloud_messages_json(messages),
             "stream": true,
+            "stream_options": { "include_usage": true },
             "max_tokens": params.max_tokens,
             "temperature": params.temperature,
         });
@@ -578,6 +580,7 @@ impl Router<'_> {
         let mut utf8_tail: Vec<u8> = Vec::new();
         let mut text = String::new();
         let mut tokens = 0u32;
+        let mut input_tokens: Option<u32> = None;
         let mut stopped = false;
         let mut reported_seconds: Option<f64> = None;
         let mut reasoning_open = false;
@@ -651,9 +654,19 @@ impl Router<'_> {
                     if let Some(usage) = value.get("usage").and_then(|u| u.get("completion_tokens")).and_then(|v| v.as_u64()) {
                         tokens = tokens.max(usage as u32);
                     }
+                    if let Some(prompt) = value
+                        .get("usage")
+                        .and_then(|u| u.get("prompt_tokens"))
+                        .and_then(|v| v.as_u64())
+                    {
+                        input_tokens = Some(prompt as u32);
+                    }
                     if value.get("done").and_then(|v| v.as_bool()).unwrap_or(false) {
                         if let Some(total) = value.get("tokens").and_then(|v| v.as_u64()) {
                             tokens = total as u32;
+                        }
+                        if let Some(prompt) = value.get("prompt_tokens").and_then(|v| v.as_u64()) {
+                            input_tokens = Some(prompt as u32);
                         }
                         reported_seconds = value.get("seconds").and_then(|v| v.as_f64());
                     }
@@ -667,6 +680,7 @@ impl Router<'_> {
         Ok(ChatOutcome {
             text,
             tokens,
+            input_tokens,
             seconds: reported_seconds.unwrap_or_else(|| started.elapsed().as_secs_f64()),
             stopped,
         })
@@ -686,6 +700,7 @@ impl Router<'_> {
         let mut utf8_tail: Vec<u8> = Vec::new();
         let mut text = String::new();
         let mut tokens = 0u32;
+        let mut input_tokens: Option<u32> = None;
         let mut stopped = false;
 
         while let Some(chunk) = stream.next().await {
@@ -709,9 +724,23 @@ impl Router<'_> {
                                 on_delta(delta);
                             }
                         }
+                        "message_start" => {
+                            if let Some(input) = value
+                                .pointer("/message/usage/input_tokens")
+                                .and_then(|v| v.as_u64())
+                            {
+                                input_tokens = Some(input as u32);
+                            }
+                        }
                         "message_delta" => {
                             if let Some(out) = value.pointer("/usage/output_tokens").and_then(|v| v.as_u64()) {
                                 tokens = out as u32;
+                            }
+                            if let Some(input) = value
+                                .pointer("/usage/input_tokens")
+                                .and_then(|v| v.as_u64())
+                            {
+                                input_tokens = Some(input as u32);
                             }
                         }
                         "error" => bail!("Ошибка провайдера: {}", error_text(&value)),
@@ -723,6 +752,7 @@ impl Router<'_> {
         Ok(ChatOutcome {
             text,
             tokens,
+            input_tokens,
             seconds: started.elapsed().as_secs_f64(),
             stopped,
         })

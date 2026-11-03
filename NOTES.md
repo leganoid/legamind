@@ -968,3 +968,12 @@ Vision для Anthropic и локальных OpenVINO не реализован
 * Быстрый вопрос идёт через Router.stream; ответ стримится событиями quick:delta.
 * Выбор чат-модели, Esc — скрыть, Enter — отправить.
 * 97 тестов.
+
+
+### Входные токены
+
+* Схема v18: messages.input_tokens.
+* OpenAI-совместимые стримы запрашивают usage (stream_options.include_usage), Anthropic — message_start.
+* Если провайдер не вернул usage, вход оценивается estimate_tokens.
+* В настройках «Расход» колонки Вход/Выход, суммарная оценка по выходу.
+* 98 тестов.

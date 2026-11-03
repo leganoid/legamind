@@ -810,12 +810,21 @@ async fn run_chat(
 
     match result {
         Ok((outcome, messages, usage, sources)) => {
-            if let Ok(message) = state.db.message_add(
+            let input_tokens = outcome.input_tokens.map(|value| value as i64).unwrap_or_else(|| {
+                let joined: String = messages
+                    .iter()
+                    .map(|message| message.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                estimate_tokens(&joined) as i64
+            });
+            if let Ok(message) = state.db.message_add_usage(
                 &session_id,
                 "assistant",
                 &outcome.text,
                 Some(&model_id),
                 Some(outcome.tokens as i64),
+                Some(input_tokens),
             ) {
                 let _ = state
                     .db
@@ -1474,6 +1483,7 @@ mod tests {
             content: "какой формат используется в binres?".into(),
             model_id: None,
             tokens: None,
+            input_tokens: None,
             created_at: "2026-01-01T00:00:00Z".into(),
         }];
         let block = Some(
@@ -1496,6 +1506,7 @@ mod tests {
             content: "привет".into(),
             model_id: None,
             tokens: None,
+            input_tokens: None,
             created_at: "2026-01-01T00:00:00Z".into(),
         }];
         let skills = Some("Активные навыки (следуй им):\n### Кратко\nОтвечай сжато.".to_string());
@@ -1513,6 +1524,7 @@ mod tests {
             content: "привет".into(),
             model_id: None,
             tokens: None,
+            input_tokens: None,
             created_at: "2026-01-01T00:00:00Z".into(),
         }];
         let lessons = Some("Усвоенные правила (соблюдай):\n- отвечай без вступлений".to_string());
@@ -1530,6 +1542,7 @@ mod tests {
             content: "сделай".into(),
             model_id: None,
             tokens: None,
+            input_tokens: None,
             created_at: "2026-01-01T00:00:00Z".into(),
         }];
         let plan = build_messages(&history, None, None, None, None, "plan");
@@ -1625,6 +1638,7 @@ mod tests {
                 content: format!("сообщение {i}"),
                 model_id: None,
                 tokens: None,
+                input_tokens: None,
                 created_at: "2026-01-01T00:00:00Z".into(),
             });
         }

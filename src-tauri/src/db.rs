@@ -49,6 +49,8 @@ pub struct ChatMessageRow {
     pub content: String,
     pub model_id: Option<String>,
     pub tokens: Option<i64>,
+    /// Входные токены запроса (если провайдер вернул usage).
+    pub input_tokens: Option<i64>,
     pub created_at: String,
 }
 
@@ -224,6 +226,7 @@ pub struct ModelUsage {
     pub model_id: String,
     pub messages: i64,
     pub tokens: i64,
+    pub input_tokens: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -707,6 +710,11 @@ impl Db {
             )?;
             conn.execute("INSERT INTO schema_version (version) VALUES (17)", [])?;
         }
+
+        if current < 18 {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN input_tokens INTEGER;")?;
+            conn.execute("INSERT INTO schema_version (version) VALUES (18)", [])?;
+        }
         Ok(())
     }
 
@@ -911,7 +919,7 @@ impl Db {
     pub fn messages_list(&self, session_id: &str) -> Result<Vec<ChatMessageRow>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, role, content, model_id, tokens, created_at
+            "SELECT id, session_id, role, content, model_id, tokens, input_tokens, created_at
              FROM messages WHERE session_id = ?1 ORDER BY created_at ASC, rowid ASC",
         )?;
         let rows = stmt
@@ -923,7 +931,8 @@ impl Db {
                     content: row.get(3)?,
                     model_id: row.get(4)?,
                     tokens: row.get(5)?,
-                    created_at: row.get(6)?,
+                    input_tokens: row.get(6)?,
+                    created_at: row.get(7)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -976,6 +985,18 @@ impl Db {
         model_id: Option<&str>,
         tokens: Option<i64>,
     ) -> Result<ChatMessageRow> {
+        self.message_add_usage(session_id, role, content, model_id, tokens, None)
+    }
+
+    pub fn message_add_usage(
+        &self,
+        session_id: &str,
+        role: &str,
+        content: &str,
+        model_id: Option<&str>,
+        tokens: Option<i64>,
+        input_tokens: Option<i64>,
+    ) -> Result<ChatMessageRow> {
         let message = ChatMessageRow {
             id: new_id(),
             session_id: session_id.to_string(),
@@ -983,12 +1004,13 @@ impl Db {
             content: content.to_string(),
             model_id: model_id.map(|s| s.to_string()),
             tokens,
+            input_tokens,
             created_at: now(),
         };
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO messages (id, session_id, role, content, model_id, tokens, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO messages (id, session_id, role, content, model_id, tokens, input_tokens, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 message.id,
                 message.session_id,
@@ -996,6 +1018,7 @@ impl Db {
                 message.content,
                 message.model_id,
                 message.tokens,
+                message.input_tokens,
                 message.created_at
             ],
         )?;
@@ -1630,9 +1653,9 @@ impl Db {
     pub fn usage_by_model(&self) -> Result<Vec<ModelUsage>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT COALESCE(model_id, 'unknown'), COUNT(*), COALESCE(SUM(tokens), 0)
+            "SELECT COALESCE(model_id, 'unknown'), COUNT(*), COALESCE(SUM(tokens), 0), COALESCE(SUM(input_tokens), 0)
              FROM messages
-             WHERE role = 'assistant' AND tokens IS NOT NULL
+             WHERE role = 'assistant' AND (tokens IS NOT NULL OR input_tokens IS NOT NULL)
              GROUP BY model_id
              ORDER BY SUM(tokens) DESC",
         )?;
@@ -1641,6 +1664,7 @@ impl Db {
                 model_id: row.get(0)?,
                 messages: row.get(1)?,
                 tokens: row.get(2)?,
+                input_tokens: row.get(3)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -2276,8 +2300,28 @@ mod tests {
     }
 
     #[test]
-    fn session_folder_roundtrip() {
+    fn message_input_tokens_roundtrip() {
         let db = Db::open_memory().unwrap();
+        let session = db.session_create("Токены", "local/test").unwrap();
+        db.message_add_usage(
+            &session.id,
+            "assistant",
+            "ответ",
+            Some("local/test"),
+            Some(5),
+            Some(11),
+        )
+        .unwrap();
+        let messages = db.messages_list(&session.id).unwrap();
+        assert_eq!(messages[0].tokens, Some(5));
+        assert_eq!(messages[0].input_tokens, Some(11));
+        let usage = db.usage_by_model().unwrap();
+        assert_eq!(usage[0].tokens, 5);
+        assert_eq!(usage[0].input_tokens, 11);
+    }
+
+    #[test]
+    fn session_folder_roundtrip() {        let db = Db::open_memory().unwrap();
         let session = db.session_create("Папка", "local/test").unwrap();
         assert_eq!(session.folder, "");
         db.session_set_folder(&session.id, "  Работа  ").unwrap();

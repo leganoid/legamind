@@ -467,6 +467,7 @@ export interface ModelUsage {
   model_id: string;
   messages: number;
   tokens: number;
+  input_tokens: number;
 }
 
 export interface ImportResult {
