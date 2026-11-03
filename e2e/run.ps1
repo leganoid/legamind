@@ -195,14 +195,22 @@ $btnCond = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
     [System.Windows.Automation.ControlType]::Button
 )
-foreach ($btn in $rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)) {
-    if ($btn.Current.HelpText -eq "Папка") { $folderBtn = $btn; break }
+for ($i = 0; $i -lt 10; $i++) {
+    foreach ($btn in $rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)) {
+        if ($btn.Current.HelpText -eq "Папка") { $folderBtn = $btn; break }
+    }
+    if ($folderBtn) { break }
+    Start-Sleep -Seconds 1
 }
 $folderOk = $false
 if ($folderBtn) {
     Invoke-Element $folderBtn | Out-Null
-    Start-Sleep -Seconds 1
-    $folderEdit = Find-Element (Get-Window) ([System.Windows.Automation.ControlType]::Edit) "*папки*"
+    $folderEdit = $null
+    for ($i = 0; $i -lt 8; $i++) {
+        Start-Sleep -Milliseconds 500
+        $folderEdit = Find-Element (Get-Window) ([System.Windows.Automation.ControlType]::Edit) "*папки*"
+        if ($folderEdit) { break }
+    }
     if ($folderEdit) {
         $folderEdit.SetFocus()
         Start-Sleep -Milliseconds 300
@@ -247,6 +255,20 @@ if ($selfCheckBtn) {
     $selfCheck = ($null -ne $schema) -and ($null -ne $rag)
 }
 Report "Самопроверка" $selfCheck "schema_found=$([bool]$schema) rag_found=$([bool]$rag)"
+
+# ---------------------------------------------------------------- обновления
+$updateBtn = Find-Element (Get-Window) ([System.Windows.Automation.ControlType]::Button) "*Проверить обновления*"
+$updateOk = $false
+if ($updateBtn) {
+    Invoke-Element $updateBtn | Out-Null
+    for ($i = 0; $i -lt 15; $i++) {
+        Start-Sleep -Seconds 1
+        $none = Find-Element (Get-Window) ([System.Windows.Automation.ControlType]::Text) "*Обновлений нет*"
+        $found = Find-Element (Get-Window) ([System.Windows.Automation.ControlType]::Text) "*Доступно обновление*"
+        if ($none -or $found) { $updateOk = $true; break }
+    }
+}
+Report "Проверка обновлений" $updateOk "button=$([bool]$updateBtn)"
 
 # ---------------------------------------------------------------- финал
 Get-Process -Name legamind -ErrorAction SilentlyContinue | Stop-Process -Force

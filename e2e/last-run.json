@@ -2,12 +2,12 @@
     {
         "step":  "Подготовка сессии и проекта",
         "ok":  true,
-        "detail":  "session=fb5694e0-8118-4103-925d-d27187d28dab"
+        "detail":  "session=8d455477-1704-4278-8dbc-bb8bddb90fd3"
     },
     {
         "step":  "Запуск приложения",
         "ok":  true,
-        "detail":  "pid=6968"
+        "detail":  "pid=17732"
     },
     {
         "step":  "Композер доступен (тур закрыт)",
@@ -37,17 +37,17 @@
     {
         "step":  "Ответ по RAG",
         "ok":  true,
-        "detail":  "assistant=\u003cthink\u003e\nUser asks one line. Answer token.\n\u003c/think\u003e\n\nE2E_RAG_TOKEN_246"
+        "detail":  "assistant=E2E_RAG_TOKEN_246"
     },
     {
         "step":  "Учёт входных токенов",
         "ok":  true,
-        "detail":  "input=2510 output=46"
+        "detail":  "input=2527 output=49"
     },
     {
         "step":  "Перезапуск приложения",
         "ok":  true,
-        "detail":  "pid=25484"
+        "detail":  "pid=16708"
     },
     {
         "step":  "История сохранилась",
@@ -68,5 +68,10 @@
         "step":  "Самопроверка",
         "ok":  true,
         "detail":  "schema_found=True rag_found=True"
+    },
+    {
+        "step":  "Проверка обновлений",
+        "ok":  true,
+        "detail":  "button=True"
     }
 ]
