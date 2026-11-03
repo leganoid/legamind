@@ -1,6 +1,12 @@
 {
   "bundle": {
-    "targets": ["app", "dmg"],
-    "createUpdaterArtifacts": false
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "createUpdaterArtifacts": false,
+    "resources": {
+      "../engine": "engine"
+    }
   }
 }

@@ -39,7 +39,6 @@ jobs:
           name: legamind-linux
           path: |
             src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/appimage/*.AppImage
 
   macos:
     runs-on: macos-14
@@ -52,23 +51,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Python deps
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install openvino openvino-genai openvino-tokenizers fastapi uvicorn pydantic pyinstaller pillow
-      - name: Strip OpenVINO signatures (PyInstaller arm64)
-        run: |
-          python - <<'PY'
-          import pathlib, subprocess, openvino
-          root = pathlib.Path(openvino.__file__).parent
-          for lib in root.rglob("*.dylib"):
-              subprocess.run(["codesign", "--remove-signature", str(lib)], check=False,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-          PY
-      - name: Build sidecar
-        env:
-          LEGAMIND_PYTHON: python
-        run: bash build-sidecar.sh
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
       - name: Build macOS bundles
