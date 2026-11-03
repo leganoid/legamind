@@ -9,6 +9,7 @@ pub mod memory;
 pub mod models;
 pub mod providers;
 pub mod import;
+pub mod images;
 pub mod cloud;
 pub mod telemetry;
 mod rag;
@@ -416,6 +417,7 @@ pub fn run() {
             cloud::cloud_set,
             cloud::cloud_upload,
             cloud::cloud_restore,
+            images::image_generate,
             chat::quick_ask,
             chat::sessions_set_folder,
             chat::usage_stats,

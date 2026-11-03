@@ -389,6 +389,20 @@ pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, S
         .ok()
         .flatten()
         .unwrap_or_default();
+    let image_models: Vec<String> = state
+        .db
+        .setting_get("local_models")
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|value| value.as_object().cloned())
+        .map(|map| {
+            map.iter()
+                .filter(|(_, value)| value.get("image").and_then(|v| v.as_bool()) == Some(true))
+                .map(|(id, _)| format!("local/{id}"))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut engine_models: Option<Vec<ModelInfo>> = None;
 
     // Если движок готов — берём локальные модели из него (включая добавленные вручную).
@@ -433,6 +447,8 @@ pub async fn models_list(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, S
                             "embedding".to_string()
                         } else if format!("local/{id}") == reranker_model {
                             "rerank".to_string()
+                        } else if image_models.contains(&format!("local/{id}")) {
+                            "image".to_string()
                         } else {
                             "chat".to_string()
                         },

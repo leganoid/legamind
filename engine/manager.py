@@ -71,6 +71,7 @@ class ModelManager:
         self._embedders: dict[str, Any] = {}
         self._rerankers: dict[str, Any] = {}
         self._vlms: dict[str, Any] = {}
+        self._images: dict[str, Any] = {}
         self._global_lock = threading.Lock()
         self._cache_lock = threading.Lock()
 
@@ -295,6 +296,55 @@ class ModelManager:
             yield ("delta", item)
         thread.join(timeout=1.0)
         yield ("done", tokens, round(time.time() - started, 2))
+
+    # ------------------------------------------------------------------ картинки
+    def generate_image(
+        self,
+        model_id: str,
+        prompt: str,
+        negative: str,
+        width: int,
+        height: int,
+        steps: int,
+        seed: int,
+    ) -> bytes:
+        import io
+
+        import numpy as np
+        from PIL import Image
+
+        cfg = self.registry.get(model_id)
+        if cfg is None:
+            raise ModelError(f"Неизвестная модель: {model_id}")
+        device = str(cfg.get("device", "CPU"))
+        with self._cache_lock:
+            pipeline = self._images.get(model_id)
+            if pipeline is None:
+                try:
+                    pipeline = ov_genai.Text2ImagePipeline(cfg["path"], device)
+                    self._images[model_id] = pipeline
+                except Exception as exc:  # noqa: BLE001
+                    raise ModelError(f"Не удалось загрузить image-модель: {exc}") from exc
+        try:
+            tensor = pipeline.generate(
+                prompt,
+                negative_prompt=negative,
+                width=max(128, int(width)),
+                height=max(128, int(height)),
+                num_inference_steps=max(1, int(steps)),
+                rng_seed=int(seed),
+            )
+            array = np.asarray(tensor)
+            if array.ndim == 4:
+                array = array[0]
+            if array.dtype != np.uint8:
+                array = np.clip(array, 0, 255).astype(np.uint8)
+            image = Image.fromarray(array)
+            out = io.BytesIO()
+            image.save(out, format="PNG")
+            return out.getvalue()
+        except Exception as exc:  # noqa: BLE001
+            raise ModelError(f"Ошибка генерации изображения: {exc}") from exc
 
     # ------------------------------------------------------------------ генерация
     def generate_stream(

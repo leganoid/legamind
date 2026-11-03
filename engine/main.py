@@ -62,6 +62,16 @@ class RerankRequest(BaseModel):
     documents: list[str] = Field(default_factory=list)
 
 
+class ImageRequest(BaseModel):
+    model: str
+    prompt: str
+    negative: str = ""
+    width: int = 512
+    height: int = 512
+    steps: int = 4
+    seed: int = 0
+
+
 def _rss_mb() -> float | None:
     """Текущий RSS процесса без внешних зависимостей (Windows psapi)."""
     try:
@@ -258,6 +268,23 @@ def create_app(registry: Registry) -> FastAPI:
         except ModelError as exc:
             return JSONResponse(status_code=400, content={"error": str(exc)})
         return {"vectors": vectors}
+
+    @app.post("/images/generate")
+    async def images_generate(body: ImageRequest):
+        try:
+            data = await asyncio.to_thread(
+                manager.generate_image,
+                body.model,
+                body.prompt,
+                body.negative,
+                body.width,
+                body.height,
+                body.steps,
+                body.seed,
+            )
+        except ModelError as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
+        return {"image": base64.b64encode(data).decode("ascii"), "format": "png"}
 
     @app.post("/rerank")
     async def rerank(body: RerankRequest):

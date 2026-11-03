@@ -152,6 +152,15 @@ export const api = {
   quickAsk: (prompt: string, modelId: string) =>
     invoke<string>("quick_ask", { prompt, modelId }),
   overlayHide: () => invoke<void>("overlay_hide"),
+  imageGenerate: (input: {
+    model: string;
+    prompt: string;
+    negative: string;
+    width: number;
+    height: number;
+    steps: number;
+    seed: number;
+  }) => invoke<string>("image_generate", input),
   cloudGet: () => invoke<CloudConfig>("cloud_get"),
   cloudSet: (enabled: boolean, url: string, user: string, password?: string) =>
     invoke<CloudConfig>("cloud_set", { enabled, url, user, password }),

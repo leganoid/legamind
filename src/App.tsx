@@ -3,6 +3,7 @@ import { api } from "./api";
 import type { ModelInfo, ProviderView, Session } from "./types";
 import ChatView from "./components/ChatView";
 import DebateView from "./components/DebateView";
+import ImagesView from "./components/ImagesView";
 import ModelsView from "./components/ModelsView";
 import Providers from "./components/Providers";
 import MemoryPanel from "./components/MemoryPanel";
@@ -15,6 +16,7 @@ import Tour from "./components/Tour";
 type View =
   | "chat"
   | "debate"
+  | "images"
   | "models"
   | "providers"
   | "memory"
@@ -26,6 +28,7 @@ type View =
 const NAV: { key: View; label: string; icon: string }[] = [
   { key: "chat", label: "Чат", icon: "💬" },
   { key: "debate", label: "Дебаты", icon: "⚖" },
+  { key: "images", label: "Изображения", icon: "🎨" },
   { key: "models", label: "Модели", icon: "🧩" },
   { key: "providers", label: "Провайдеры", icon: "🔑" },
   { key: "memory", label: "Память", icon: "🧠" },
@@ -264,6 +267,9 @@ export default function App() {
         </Show>
         <Show when={view() === "debate"}>
           <DebateView models={models()} providerLabels={providerLabels()} onModelsChanged={refreshModels} />
+        </Show>
+        <Show when={view() === "images"}>
+          <ImagesView models={models()} />
         </Show>
         <Show when={view() === "models"}>
           <ModelsView models={models()} providerLabels={providerLabels()} onModelsChanged={refreshModels} />

@@ -82,15 +82,17 @@ pub fn discover_models(state: &AppState) -> Result<usize> {
     for entry in entries.flatten() {
         let path = entry.path();
         let has_vlm = path.join("openvino_language_model.xml").exists();
+        let has_image = path.join("model_index.json").exists()
+            && (path.join("unet").is_dir() || path.join("transformer").is_dir());
         if !path.is_dir()
-            || (!path.join("openvino_model.xml").exists() && !has_vlm)
+            || (!path.join("openvino_model.xml").exists() && !has_vlm && !has_image)
         {
             continue;
         }
         let key = path.to_string_lossy().replace('/', "\\").to_lowercase();
         if known.contains(&key) {
             // У уже добавленной VLM мог не быть флага vlm — обновляем.
-            if has_vlm {
+            if has_vlm || has_image {
                 let existing = map.iter_mut().find(|(_, value)| {
                     value
                         .get("path")
@@ -99,8 +101,12 @@ pub fn discover_models(state: &AppState) -> Result<usize> {
                         .unwrap_or(false)
                 });
                 if let Some((_, value)) = existing {
-                    if value.get("vlm").and_then(|v| v.as_bool()) != Some(true) {
+                    if has_vlm && value.get("vlm").and_then(|v| v.as_bool()) != Some(true) {
                         value["vlm"] = serde_json::json!(true);
+                        added += 1;
+                    }
+                    if has_image && value.get("image").and_then(|v| v.as_bool()) != Some(true) {
+                        value["image"] = serde_json::json!(true);
                         added += 1;
                     }
                 }
@@ -136,7 +142,8 @@ pub fn discover_models(state: &AppState) -> Result<usize> {
                 "max_tokens": max_tokens,
                 "size_gb": size_gb,
                 "thinks": thinks,
-                "vlm": has_vlm
+                "vlm": has_vlm,
+                "image": has_image
             }),
         );
         known.push(key);
@@ -250,6 +257,8 @@ pub async fn local_model_add(
     let max_tokens = input.max_tokens.unwrap_or(2048).clamp(512, 32768);
     let size_gb = dir_size(&path, 0) as f64 / 1_000_000_000.0;
     let vlm = path.join("openvino_language_model.xml").exists();
+    let image = path.join("model_index.json").exists()
+        && (path.join("unet").is_dir() || path.join("transformer").is_dir());
     let id = format!(
         "custom-{}",
         crate::db::new_id().split('-').next().unwrap_or("model")
@@ -264,7 +273,8 @@ pub async fn local_model_add(
             "max_tokens": max_tokens,
             "size_gb": (size_gb * 100.0).round() / 100.0,
             "thinks": input.thinks.unwrap_or(false),
-            "vlm": vlm
+            "vlm": vlm,
+            "image": image
         }),
     );
     write_map(&state, &map).map_err(|e| e.to_string())?;
