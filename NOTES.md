@@ -1027,3 +1027,10 @@ Vision для Anthropic и локальных OpenVINO не реализован
 * Linux .deb собран в CI (Ubuntu 24.04, ~152 МБ), macOS .app/.dmg ~9 МБ без сайдкара.
 * rfd: gtk3 вместо xdg-portal, иначе конфликт с tauri-plugin-dialog.
 * macOS sidecar блокирован install_name_tool на OpenVINO arm64 dylib; нужен внешний Python.
+
+### Gated HF и конвертация
+
+* Токен HF в Credential Manager (provider huggingface), Bearer для tree и файлов.
+* hf_convert_model запускает optimum-cli export openvino --weight-format int4.
+* Требуются optimum[openvino], transformers, torch; в сайдкар не входят.
+* 100 тестов; конвертация вживую не проверялась (зависимости не установлены).

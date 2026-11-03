@@ -189,6 +189,9 @@ export const api = {
     invoke<ModelInspection>("inspect_local_model", { path }),
   hfModelPreview: (repo: string) => invoke<HfPreview>("hf_model_preview", { repo }),
   hfModelDownload: (repo: string) => invoke<string>("hf_model_download", { repo }),
+  hfTokenStatus: () => invoke<boolean>("hf_token_status"),
+  hfTokenSet: (token: string) => invoke<void>("hf_token_set", { token }),
+  hfConvertModel: (repo: string) => invoke<string>("hf_convert_model", { repo }),
   logsTail: (name: string, lines = 400) =>
     invoke<LogTail>("logs_tail", { name, lines }),
   engineStats: () => invoke<EngineStats>("engine_stats"),

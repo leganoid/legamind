@@ -156,10 +156,14 @@ struct TreeEntry {
 async fn hf_tree(state: &AppState, repo: &str) -> Result<Vec<HfFile>> {
     validate_repo(repo)?;
     let url = format!("https://huggingface.co/api/models/{repo}/tree/main");
-    let resp = state
+    let mut request = state
         .client
         .get(url)
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(30));
+    if let Ok(Some(token)) = crate::secrets::get_key(state, "huggingface") {
+        request = request.bearer_auth(token);
+    }
+    let resp = request
         .send()
         .await
         .context("Hugging Face не ответил")?;
@@ -179,6 +183,80 @@ async fn hf_tree(state: &AppState, repo: &str) -> Result<Vec<HfFile>> {
             size: entry.size.unwrap_or(0),
         })
         .collect())
+}
+
+#[tauri::command]
+pub async fn hf_token_status(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(crate::secrets::has_key(&state, "huggingface"))
+}
+
+#[tauri::command]
+pub async fn hf_token_set(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<(), String> {
+    if token.trim().is_empty() {
+        crate::secrets::delete_key(&state, "huggingface").map_err(|e| e.to_string())
+    } else {
+        crate::secrets::set_key(&state, "huggingface", token.trim()).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn hf_convert_model(
+    state: State<'_, AppState>,
+    repo: String,
+) -> Result<String, String> {
+    let repo = repo.trim().to_string();
+    validate_repo(&repo).map_err(|e| e.to_string())?;
+    let target = state.data_dir.join("models").join(safe_dir_name(&repo));
+    std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+    let python = std::env::var("LEGAMIND_PYTHON")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            let local = std::env::var("LOCALAPPDATA").ok()?;
+            let candidate = std::path::Path::new(&local)
+                .join("venvs")
+                .join("ai")
+                .join("Scripts")
+                .join("python.exe");
+            candidate.exists().then(|| candidate.to_string_lossy().to_string())
+        })
+        .unwrap_or_else(|| "python".to_string());
+    let token = crate::secrets::get_key(&state, "huggingface")
+        .ok()
+        .flatten();
+    let repo_clone = repo.clone();
+    let target_str = target.to_string_lossy().to_string();
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        let mut command = std::process::Command::new(&python);
+        command
+            .arg("-m")
+            .arg("optimum.commands.optimum_cli")
+            .arg("export")
+            .arg("openvino")
+            .arg("--model")
+            .arg(&repo_clone)
+            .arg("--weight-format")
+            .arg("int4")
+            .arg(&target_str);
+        if let Some(token) = token {
+            command.env("HF_TOKEN", token);
+        }
+        command.output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("Не удалось запустить конвертацию: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail: String = stderr.chars().rev().take(1500).collect::<String>().chars().rev().collect();
+        return Err(format!(
+            "Optimum не смог конвертировать. Установите optimum[openvino], transformers и torch. {tail}"
+        ));
+    }
+    Ok(target.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -250,10 +328,14 @@ pub async fn hf_model_download(
             "https://huggingface.co/{repo}/resolve/main/{}",
             file.path
         );
-        let mut resp = state
+        let mut request = state
             .client
             .get(&url)
-            .timeout(std::time::Duration::from_secs(3600))
+            .timeout(std::time::Duration::from_secs(3600));
+        if let Ok(Some(token)) = crate::secrets::get_key(&state, "huggingface") {
+            request = request.bearer_auth(token);
+        }
+        let mut resp = request
             .send()
             .await
             .map_err(|e| format!("{}: {e}", file.path))?;

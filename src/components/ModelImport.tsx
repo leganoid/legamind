@@ -31,6 +31,8 @@ export default function ModelImport(props: Props) {
   const [repo, setRepo] = createSignal("");
   const [preview, setPreview] = createSignal<HfPreview | null>(null);
   const [progress, setProgress] = createSignal<ModelDownloadEvent | null>(null);
+  const [hfToken, setHfToken] = createSignal("");
+  const [tokenSaved, setTokenSaved] = createSignal(false);
 
   let unlisten: UnlistenFn | undefined;
   onMount(() => {
@@ -39,6 +41,7 @@ export default function ModelImport(props: Props) {
     }).then((fn) => {
       unlisten = fn;
     });
+    void api.hfTokenStatus().then(setTokenSaved).catch(() => undefined);
   });
   onCleanup(() => unlisten?.());
 
@@ -81,6 +84,33 @@ export default function ModelImport(props: Props) {
     setBusy("download");
     try {
       const path = await api.hfModelDownload(repo().trim());
+      applyInspection(await api.inspectLocalModel(path), preview()?.label);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveToken = async () => {
+    setError(null);
+    setBusy("token");
+    try {
+      await api.hfTokenSet(hfToken());
+      setTokenSaved(!!hfToken().trim());
+      setHfToken("");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const convertRepo = async () => {
+    setError(null);
+    setBusy("convert");
+    try {
+      const path = await api.hfConvertModel(repo().trim());
       applyInspection(await api.inspectLocalModel(path), preview()?.label);
     } catch (err) {
       setError(String(err));
@@ -180,9 +210,36 @@ export default function ModelImport(props: Props) {
             </div>
           </label>
           <p class="muted small">
-            Нужен репозиторий с уже сконвертированным OpenVINO IR. Конвертация из PyTorch
-            внутри приложения не выполняется.
+            Токен нужен для gated/private репозиториев. Хранится в Credential Manager.
+            {tokenSaved() ? " Токен сохранён." : ""}
           </p>
+          <div class="row">
+            <input
+              type="password"
+              value={hfToken()}
+              placeholder={tokenSaved() ? "Токен уже сохранён" : "hf_..."}
+              onInput={(event) => setHfToken(event.currentTarget.value)}
+            />
+            <button
+              class="btn ghost"
+              onClick={() => void saveToken()}
+              disabled={busy() !== null}
+            >
+              {busy() === "token" ? "Сохраняю…" : "Сохранить токен"}
+            </button>
+          </div>
+          <p class="muted small">
+            Если в репозитории нет IR, можно конвертировать PyTorch → OpenVINO через
+            Optimum (нужны <code>optimum[openvino]</code>, <code>transformers</code>,{" "}
+            <code>torch</code>).
+          </p>
+          <button
+            class="btn ghost"
+            onClick={() => void convertRepo()}
+            disabled={!repo().trim() || busy() !== null}
+          >
+            {busy() === "convert" ? "Конвертирую… (долго)" : "Конвертировать в IR"}
+          </button>
           <Show when={preview()}>
             <div class="import-preview">
               <p>
