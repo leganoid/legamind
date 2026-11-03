@@ -24,9 +24,7 @@ pub struct WorkdirInfo {
 #[tauri::command]
 pub async fn pick_folder() -> Result<Option<String>, String> {
     #[cfg(target_os = "android")]
-    {
-        return Ok(None);
-    }
+    let picked: Option<std::path::PathBuf> = None;
     #[cfg(not(target_os = "android"))]
     let picked = tauri::async_runtime::spawn_blocking(|| {
         rfd::FileDialog::new()

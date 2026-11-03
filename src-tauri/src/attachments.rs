@@ -116,9 +116,7 @@ fn extract_pdf(bytes: &[u8]) -> Option<String> {
 #[tauri::command]
 pub async fn pick_text_attachment() -> Result<Option<PickedAttachment>, String> {
     #[cfg(target_os = "android")]
-    {
-        return Err("Выбор файлов на Android пока не поддержан".into());
-    }
+    let file: Option<std::path::PathBuf> = None;
     #[cfg(not(target_os = "android"))]
     let file = rfd::FileDialog::new()
         .set_title("Приложить файл: текст, PDF или изображение")

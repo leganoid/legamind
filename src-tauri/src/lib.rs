@@ -36,6 +36,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use tauri::{Manager, State};
+#[cfg(desktop)]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use db::{ChatMessageRow, Db, Session};
@@ -201,6 +202,7 @@ async fn engine_restart(app: tauri::AppHandle, state: State<'_, AppState>) -> Re
 }
 
 fn hide_overlay(app: &tauri::AppHandle) {
+    #[cfg(desktop)]
     let _ = app.global_shortcut().unregister("Escape");
     if let Some(window) = app.get_webview_window("overlay") {
         let _ = window.hide();
@@ -211,6 +213,7 @@ fn show_overlay(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("overlay") {
         let _ = window.show();
         let _ = window.set_focus();
+        #[cfg(desktop)]
         if let Err(err) = app.global_shortcut().register("Escape") {
             let _ = logging::log_line("app.log", &format!("overlay escape failed: {err}"));
         }
@@ -240,25 +243,28 @@ pub fn run() {
         .try_init()
         .ok();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, shortcut, event| {
-                    if event.state() == ShortcutState::Pressed {
-                        if shortcut.to_string().to_lowercase().contains("escape") {
-                            hide_overlay(app);
-                        } else {
-                            toggle_overlay(app);
-                        }
+        .plugin(tauri_plugin_dialog::init());
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(|app, shortcut, event| {
+                if event.state() == ShortcutState::Pressed {
+                    if shortcut.to_string().to_lowercase().contains("escape") {
+                        hide_overlay(app);
+                    } else {
+                        toggle_overlay(app);
                     }
-                })
-                .build(),
-        )
+                }
+            })
+            .build(),
+    );
+    builder
         .setup(|app| {
+            #[cfg(desktop)]
             if let Err(err) = app
                 .global_shortcut()
                 .register("CommandOrControl+Shift+Space")
