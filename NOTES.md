@@ -1041,3 +1041,11 @@ Vision для Anthropic и локальных OpenVINO не реализован
 * AES-256-GCM, ключ Argon2id из парольной фразы (не сохраняется), salt/nonce случайные.
 * PUT/GET legamind-backup.enc; перед восстановлением делается safety-копия, затем restart.
 * Тест crypto roundtrip; 101 unit-тест. Сеть WebDAV вживую не проверялась.
+
+### Генерация изображений
+
+* Text2ImagePipeline, /images/generate, раздел «Изображения», PNG data URL.
+* Автопоиск model_index.json + unet/transformer, image=true.
+* Официальный OpenVINO/stable-diffusion-v1-5-int8-ov (2.19 ГБ) работает.
+* 256×256, 12 шагов: 29 с CPU, осмысленный результат; 2 шага — шум.
+* 101 тест.
