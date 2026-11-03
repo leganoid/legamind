@@ -69,6 +69,7 @@ def facts() -> dict:
         "rag_token_chunks": 0,
         "input_tokens": 0,
         "output_tokens": 0,
+        "folder": None,
     }
     if session_id:
         result["messages"] = conn.execute(
@@ -84,6 +85,9 @@ def facts() -> dict:
             (session_id,),
         ).fetchone()
         result["input_tokens"], result["output_tokens"] = usage
+        result["folder"] = conn.execute(
+            "SELECT folder FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()[0]
         tool = conn.execute(
             "SELECT tool, path, message_id FROM tool_runs WHERE session_id = ? ORDER BY rowid DESC LIMIT 1",
             (session_id,),

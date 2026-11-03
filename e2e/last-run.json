@@ -2,12 +2,12 @@
     {
         "step":  "Подготовка сессии и проекта",
         "ok":  true,
-        "detail":  "session=bf59356f-f728-4de6-8bd9-e2ae19c1431f"
+        "detail":  "session=fb5694e0-8118-4103-925d-d27187d28dab"
     },
     {
         "step":  "Запуск приложения",
         "ok":  true,
-        "detail":  "pid=21032"
+        "detail":  "pid=6968"
     },
     {
         "step":  "Композер доступен (тур закрыт)",
@@ -37,22 +37,27 @@
     {
         "step":  "Ответ по RAG",
         "ok":  true,
-        "detail":  "assistant=\u003cthink\u003e\n������ ����� ����� �������.\n\u003c/think\u003e\n\nE2E_RAG_TOKEN_246."
+        "detail":  "assistant=\u003cthink\u003e\nUser asks one line. Answer token.\n\u003c/think\u003e\n\nE2E_RAG_TOKEN_246"
     },
     {
         "step":  "Учёт входных токенов",
         "ok":  true,
-        "detail":  "input=2526 output=56"
+        "detail":  "input=2510 output=46"
     },
     {
         "step":  "Перезапуск приложения",
         "ok":  true,
-        "detail":  "pid=24564"
+        "detail":  "pid=25484"
     },
     {
         "step":  "История сохранилась",
         "ok":  true,
         "detail":  "messages=4"
+    },
+    {
+        "step":  "Папка сессии",
+        "ok":  true,
+        "detail":  "folder=E2E Folder"
     },
     {
         "step":  "Запись после перезапуска без модалки",

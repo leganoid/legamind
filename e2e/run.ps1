@@ -188,6 +188,36 @@ Report "Перезапуск приложения" ($null -ne $app2 -and $compos
 $after = Get-Facts
 Report "История сохранилась" ($after.messages -ge $before.messages -and $after.messages -gt 0) "messages=$($after.messages)"
 
+# ---------------------------------------------------------------- папки сессий
+$folderBtn = $null
+$rootEl = [System.Windows.Automation.AutomationElement]::FromHandle((Get-Window))
+$btnCond = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Button
+)
+foreach ($btn in $rootEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)) {
+    if ($btn.Current.HelpText -eq "Папка") { $folderBtn = $btn; break }
+}
+$folderOk = $false
+if ($folderBtn) {
+    Invoke-Element $folderBtn | Out-Null
+    Start-Sleep -Seconds 1
+    $folderEdit = Find-Element (Get-Window) ([System.Windows.Automation.ControlType]::Edit) "*папки*"
+    if ($folderEdit) {
+        $folderEdit.SetFocus()
+        Start-Sleep -Milliseconds 300
+        [System.Windows.Forms.SendKeys]::SendWait("^a")
+        [System.Windows.Forms.SendKeys]::SendWait("E2E Folder")
+        Start-Sleep -Milliseconds 400
+        $save = Find-Element (Get-Window) ([System.Windows.Automation.ControlType]::Button) "Сохранить"
+        if ($save) { Invoke-Element $save | Out-Null }
+        Start-Sleep -Seconds 2
+        $folderFacts = Get-Facts
+        $folderOk = $folderFacts.folder -eq "E2E Folder"
+    }
+}
+Report "Папка сессии" $folderOk "folder=$($folderFacts.folder)"
+
 # ---------------------------------------------------------------- 4. запись без модалки
 Send-Chat "Создай e2e-out2.txt с текстом E2E_WRITE_222."
 Start-Sleep -Seconds 2
