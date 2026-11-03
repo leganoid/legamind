@@ -2060,3 +2060,46 @@ label.inline {
   border: 1px solid var(--border);
   background: var(--panel);
 }
+
+.quick-overlay,
+.quick-overlay * {
+  box-sizing: border-box;
+}
+
+.quick-overlay {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.quick-head {
+  min-width: 0;
+}
+
+.quick-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-head .row {
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.quick-head select {
+  min-width: 0;
+  max-width: 240px;
+}
+
+.quick-input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.quick-answer {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
