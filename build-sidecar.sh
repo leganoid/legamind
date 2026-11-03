@@ -24,4 +24,5 @@ cd "$ROOT"
   engine/sidecar_entry.py
 
 chmod +x "$DIST/legamind-engine"
+printf "placeholder: build-sidecar fills this directory" > "$DIST/.gitkeep"
 echo "Готово: $DIST"
