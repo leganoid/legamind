@@ -152,12 +152,19 @@ pub async fn db_backup(
     let dest = match path {
         Some(value) => PathBuf::from(value),
         None => {
-            let file = rfd::FileDialog::new()
-                .set_title("Сохранить копию базы Legamind")
-                .add_filter("SQLite", &["db"])
-                .set_file_name(&format!("legamind-backup-{}.db", timestamp()))
-                .save_file();
-            file.ok_or_else(|| "Сохранение отменено".to_string())?
+            #[cfg(target_os = "android")]
+            {
+                return Err("Выбор пути на Android пока не поддержан".into());
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let file = rfd::FileDialog::new()
+                    .set_title("Сохранить копию базы Legamind")
+                    .add_filter("SQLite", &["db"])
+                    .set_file_name(&format!("legamind-backup-{}.db", timestamp()))
+                    .save_file();
+                file.ok_or_else(|| "Сохранение отменено".to_string())?
+            }
         }
     };
     let encrypt = encrypted.unwrap_or(false);
@@ -190,11 +197,18 @@ pub async fn db_restore(
     let source = match path {
         Some(value) => PathBuf::from(value),
         None => {
-            let file = rfd::FileDialog::new()
-                .set_title("Выберите копию базы Legamind")
-                .add_filter("SQLite", &["db"])
-                .pick_file();
-            file.ok_or_else(|| "Выбор отменён".to_string())?
+            #[cfg(target_os = "android")]
+            {
+                return Err("Выбор пути на Android пока не поддержан".into());
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let file = rfd::FileDialog::new()
+                    .set_title("Выберите копию базы Legamind")
+                    .add_filter("SQLite", &["db"])
+                    .pick_file();
+                file.ok_or_else(|| "Выбор отменён".to_string())?
+            }
         }
     };
 

@@ -31,7 +31,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio-stream = "0.1"
 keyring = { version = "3", features = ["windows-native"] }
 base64 = "0.22"
-rfd = { version = "0.17.2", default-features = false, features = ["gtk3"] }
 similar = "2.7.0"
 notify = "8.2.0"
 pdf-extract = "0.12.1"
@@ -58,3 +57,6 @@ lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd = { version = "0.17.2", default-features = false, features = ["gtk3"] }
