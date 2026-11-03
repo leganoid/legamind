@@ -476,6 +476,14 @@ export interface ImportResult {
   messages: number;
 }
 
+export interface RagConfig {
+  extensions: string[];
+  excludes: string[];
+  max_file_kb: number;
+  max_files: number;
+  max_chunks: number;
+}
+
 export interface PickedAttachment {
   name: string;
   path: string;

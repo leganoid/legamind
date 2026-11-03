@@ -990,3 +990,9 @@ Vision для Anthropic и локальных OpenVINO не реализован
 * Контекст берётся из config.json max_position_embeddings (clamp 32768), thinks — qwen3/reason.
 * Найдено 4 модели: qwen2.5-1.5b, qwen2.5-coder-7b, qwen3-14b, qwen3-coder-30b-a3b.
 * 98 тестов.
+
+### Настройки RAG
+
+* `rag_config`: extensions, excludes, max_file_kb, max_files, max_chunks.
+* Исключения — имена папок/путей; расширения нормализуются; лимиты клампятся.
+* UI: Настройки → Параметры RAG. 99 тестов (фильтрация расширений/исключений).

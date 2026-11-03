@@ -421,6 +421,8 @@ pub fn run() {
             rag::rag_get_enabled,
             rag::rag_set_enabled,
             rag::rag_embedding_set,
+            rag::rag_config_get,
+            rag::rag_config_set,
             rag::rag_embedding_get,
             rag::rag_embedding_status,
             rag::rag_embed_project,

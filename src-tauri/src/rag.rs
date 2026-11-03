@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::AppState;
@@ -15,6 +15,82 @@ use crate::AppState;
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 const MAX_FILES: usize = 400;
 const MAX_CHUNKS: usize = 2000;
+const RAG_CONFIG_KEY: &str = "rag_config";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagConfig {
+    pub extensions: Vec<String>,
+    pub excludes: Vec<String>,
+    pub max_file_kb: u64,
+    pub max_files: usize,
+    pub max_chunks: usize,
+}
+
+impl Default for RagConfig {
+    fn default() -> Self {
+        Self {
+            extensions: TEXT_EXTS.iter().map(|value| value.to_string()).collect(),
+            excludes: Vec::new(),
+            max_file_kb: (MAX_FILE_BYTES / 1024) as u64,
+            max_files: MAX_FILES,
+            max_chunks: MAX_CHUNKS,
+        }
+    }
+}
+
+impl RagConfig {
+    fn normalized(mut self) -> Self {
+        self.extensions = self
+            .extensions
+            .into_iter()
+            .map(|value| value.trim().trim_start_matches('.').to_lowercase())
+            .filter(|value| !value.is_empty() && value.chars().all(|ch| ch.is_ascii_alphanumeric()))
+            .collect();
+        if self.extensions.is_empty() {
+            self.extensions = TEXT_EXTS.iter().map(|value| value.to_string()).collect();
+        }
+        self.excludes = self
+            .excludes
+            .into_iter()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .collect();
+        self.max_file_kb = self.max_file_kb.clamp(1, 4096);
+        self.max_files = self.max_files.clamp(1, 5000);
+        self.max_chunks = self.max_chunks.clamp(100, 20000);
+        self
+    }
+
+    fn max_file_bytes(&self) -> u64 {
+        self.max_file_kb * 1024
+    }
+
+    fn allows(&self, path: &Path) -> bool {
+        path.extension()
+            .and_then(|value| value.to_str())
+            .map(|ext| self.extensions.iter().any(|allowed| allowed == &ext.to_lowercase()))
+            .unwrap_or(false)
+    }
+
+    fn is_excluded(&self, relative: &Path) -> bool {
+        let text = relative.to_string_lossy().replace('/', "\\").to_lowercase();
+        let components: Vec<String> = text.split('\\').map(|part| part.to_string()).collect();
+        self.excludes.iter().any(|exclude| {
+            components.iter().any(|part| part == exclude)
+                || text == *exclude
+                || text.starts_with(&format!("{exclude}\\"))
+        })
+    }
+}
+
+pub fn rag_config(db: &crate::db::Db) -> RagConfig {
+    db.setting_get(RAG_CONFIG_KEY)
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<RagConfig>(&raw).ok())
+        .unwrap_or_default()
+        .normalized()
+}
 const CHUNK_CHARS: usize = 900;
 const CHUNK_OVERLAP: usize = 150;
 const BLOCK_CHARS: usize = 4500;
@@ -101,6 +177,10 @@ fn is_text_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn is_text_file_with(path: &Path, config: &RagConfig) -> bool {
+    config.allows(path)
+}
+
 fn gitignore_for(root: &Path) -> Option<ignore::gitignore::Gitignore> {
     let file = root.join(".gitignore");
     if !file.is_file() {
@@ -117,15 +197,16 @@ fn walk(
     out: &mut Vec<PathBuf>,
     depth: usize,
     matcher: Option<&ignore::gitignore::Gitignore>,
+    config: &RagConfig,
 ) {
-    if depth > 8 || out.len() >= MAX_FILES {
+    if depth > 12 || out.len() >= config.max_files {
         return;
     }
     let Ok(entries) = std::fs::read_dir(current) else {
         return;
     };
     for entry in entries.flatten() {
-        if out.len() >= MAX_FILES {
+        if out.len() >= config.max_files {
             return;
         }
         let path = entry.path();
@@ -133,6 +214,9 @@ fn walk(
             continue;
         };
         let relative = path.strip_prefix(root).unwrap_or(&path);
+        if config.is_excluded(relative) {
+            continue;
+        }
         if let Some(matcher) = matcher {
             if matcher
                 .matched_path_or_any_parents(relative, file_type.is_dir())
@@ -146,13 +230,13 @@ fn walk(
             if SKIP_DIRS.contains(&name.as_str()) {
                 continue;
             }
-            walk(root, &path, out, depth + 1, matcher);
+            walk(root, &path, out, depth + 1, matcher, config);
         } else if file_type.is_file() {
-            if !is_text_file(&path) {
+            if !is_text_file_with(&path, config) {
                 continue;
             }
             let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
-            if size == 0 || size > MAX_FILE_BYTES {
+            if size == 0 || size > config.max_file_bytes() {
                 continue;
             }
             out.push(path);
@@ -162,17 +246,25 @@ fn walk(
 
 /// Подходит ли файл для индексации (текст, размер в пределах лимита).
 pub fn is_indexable(path: &Path) -> bool {
-    if !path.is_file() || !is_text_file(path) {
+    is_indexable_with(path, &RagConfig::default())
+}
+
+pub fn is_indexable_with(path: &Path, config: &RagConfig) -> bool {
+    if !path.is_file() || !is_text_file_with(path, config) {
         return false;
     }
     let size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
-    size > 0 && size <= MAX_FILE_BYTES
+    size > 0 && size <= config.max_file_bytes()
 }
 
 pub fn collect_files(root: &Path) -> Vec<PathBuf> {
+    collect_files_with(root, &RagConfig::default())
+}
+
+pub fn collect_files_with(root: &Path, config: &RagConfig) -> Vec<PathBuf> {
     let matcher = gitignore_for(root);
     let mut files = Vec::new();
-    walk(root, root, &mut files, 0, matcher.as_ref());
+    walk(root, root, &mut files, 0, matcher.as_ref(), config);
     files.sort();
     files
 }
@@ -180,12 +272,13 @@ pub fn collect_files(root: &Path) -> Vec<PathBuf> {
 /// Полностью переиндексирует рабочую папку.
 pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
     let root_key = root.to_string_lossy().to_string();
+    let config = rag_config(db);
     db.rag_clear(&root_key)?;
-    let files = collect_files(root);
+    let files = collect_files_with(root, &config);
 
     let mut total_chunks = 0usize;
     for file in files.iter() {
-        if total_chunks >= MAX_CHUNKS {
+        if total_chunks >= config.max_chunks {
             break;
         }
         let Ok(text) = std::fs::read_to_string(file) else {
@@ -197,7 +290,7 @@ pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
             .unwrap_or_else(|_| file.to_string_lossy().to_string());
         let chunks = chunk_spans(&text, CHUNK_CHARS, CHUNK_OVERLAP);
         for (index, (chunk, line)) in chunks.iter().enumerate() {
-            if total_chunks >= MAX_CHUNKS {
+            if total_chunks >= config.max_chunks {
                 break;
             }
             db.rag_add_chunk(&root_key, &relative, index as i64, chunk, *line)?;
@@ -216,12 +309,13 @@ pub fn index_workdir(db: &crate::db::Db, root: &Path) -> Result<IndexStats> {
 /// Обновляет в индексе один файл (после записи/правки/удаления).
 pub fn reindex_file(db: &crate::db::Db, root: &Path, file: &Path) -> Result<()> {
     let root_key = root.to_string_lossy().to_string();
+    let config = rag_config(db);
     let relative = file
         .strip_prefix(root)
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|_| file.to_string_lossy().to_string());
     db.rag_delete_path(&root_key, &relative)?;
-    if !file.is_file() {
+    if !file.is_file() || !is_indexable_with(file, &config) {
         return Ok(());
     }
     let Ok(text) = std::fs::read_to_string(file) else {
@@ -275,7 +369,7 @@ pub fn refresh_if_stale(db: &crate::db::Db, root: &Path) -> Result<bool> {
     };
     let indexed_at = indexed_at.with_timezone(&chrono::Utc);
 
-    let files = collect_files(root);
+    let files = collect_files_with(root, &rag_config(db));
     let mut newest: Option<chrono::DateTime<chrono::Utc>> = None;
     for file in files {
         let Ok(metadata) = std::fs::metadata(&file) else {
@@ -482,6 +576,25 @@ pub async fn rag_reranker_set(
         .db
         .setting_set(RERANKER_MODEL_KEY, value.trim())
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rag_config_get(state: State<'_, AppState>) -> Result<RagConfig, String> {
+    Ok(rag_config(&state.db))
+}
+
+#[tauri::command]
+pub async fn rag_config_set(
+    state: State<'_, AppState>,
+    config: RagConfig,
+) -> Result<RagConfig, String> {
+    let normalized = config.normalized();
+    let raw = serde_json::to_string(&normalized).map_err(|e| e.to_string())?;
+    state
+        .db
+        .setting_set(RAG_CONFIG_KEY, &raw)
+        .map_err(|e| e.to_string())?;
+    Ok(normalized)
 }
 
 #[tauri::command]
@@ -823,6 +936,36 @@ mod tests {
         assert!(names.contains(&"keep.md".to_string()));
         assert!(!names.contains(&"secret.txt".to_string()));
         assert!(!names.contains(&"gen.md".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn config_filters_extensions_and_excludes() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-data")
+            .join("rag-config");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("exclude")).unwrap();
+        std::fs::write(dir.join("keep.md"), "# keep").unwrap();
+        std::fs::write(dir.join("skip.xyz"), "skip").unwrap();
+        std::fs::write(dir.join("exclude").join("secret.md"), "secret").unwrap();
+        let config = RagConfig {
+            extensions: vec!["MD".into()],
+            excludes: vec!["Exclude".into()],
+            max_file_kb: 256,
+            max_files: 400,
+            max_chunks: 2000,
+        }
+        .normalized();
+        let files = collect_files_with(&dir, &config);
+        let names: Vec<String> = files
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(names.contains(&"keep.md".to_string()));
+        assert!(!names.contains(&"skip.xyz".to_string()));
+        assert!(!names.contains(&"secret.md".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

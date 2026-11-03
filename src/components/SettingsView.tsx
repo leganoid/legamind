@@ -36,6 +36,36 @@ export default function SettingsView() {
   const [embeddingBusy, setEmbeddingBusy] = createSignal(false);
   const [rerankerModel, setRerankerModel] = createSignal("");
   const [rerankerBusy, setRerankerBusy] = createSignal(false);
+  const [ragExtensions, setRagExtensions] = createSignal("");
+  const [ragExcludes, setRagExcludes] = createSignal("");
+  const [ragFileKb, setRagFileKb] = createSignal(256);
+  const [ragMaxFiles, setRagMaxFiles] = createSignal(400);
+  const [ragMaxChunks, setRagMaxChunks] = createSignal(2000);
+  const [ragBusy, setRagBusy] = createSignal(false);
+
+  const saveRagConfig = async () => {
+    setRagBusy(true);
+    setError(null);
+    try {
+      const saved = await api.ragConfigSet({
+        extensions: ragExtensions().split(",").map((value) => value.trim()).filter(Boolean),
+        excludes: ragExcludes().split(",").map((value) => value.trim()).filter(Boolean),
+        max_file_kb: ragFileKb(),
+        max_files: ragMaxFiles(),
+        max_chunks: ragMaxChunks(),
+      });
+      setRagExtensions(saved.extensions.join(", "));
+      setRagExcludes(saved.excludes.join(", "));
+      setRagFileKb(saved.max_file_kb);
+      setRagMaxFiles(saved.max_files);
+      setRagMaxChunks(saved.max_chunks);
+      setNotice("Настройки RAG сохранены. Переиндексируйте проект.");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setRagBusy(false);
+    }
+  };
 
   const saveReranker = async () => {
     setRerankerBusy(true);
@@ -349,6 +379,12 @@ export default function SettingsView() {
     await loadBackupInfo();
     setEmbeddingModel((await api.ragEmbeddingGet()) ?? "");
     setRerankerModel((await api.ragRerankerGet()) ?? "");
+    const rag = await api.ragConfigGet();
+    setRagExtensions(rag.extensions.join(", "));
+    setRagExcludes(rag.excludes.join(", "));
+    setRagFileKb(rag.max_file_kb);
+    setRagMaxFiles(rag.max_files);
+    setRagMaxChunks(rag.max_chunks);
     void loadUsage();
     const all = await api.modelsList();
     setEmbeddingModels(
@@ -764,6 +800,64 @@ export default function SettingsView() {
           Реранкер — локальная OpenVINO-модель; переупорядочивает найденные фрагменты перед
           ответом.
         </p>
+      </section>
+
+      <section class="card">
+        <h2>Параметры RAG</h2>
+        <p class="muted small">
+          Расширения и исключаемые папки — через запятую. Лимиты ограничивают размер индекса.
+        </p>
+        <label class="field">
+          <span>Расширения</span>
+          <input
+            value={ragExtensions()}
+            onInput={(event) => setRagExtensions(event.currentTarget.value)}
+            placeholder="md, txt, rs, ts"
+          />
+        </label>
+        <label class="field">
+          <span>Исключить папки</span>
+          <input
+            value={ragExcludes()}
+            onInput={(event) => setRagExcludes(event.currentTarget.value)}
+            placeholder="vendor, dist, generated"
+          />
+        </label>
+        <div class="row">
+          <label class="field">
+            <span>Макс. файл, КБ</span>
+            <input
+              type="number"
+              min="1"
+              max="4096"
+              value={ragFileKb()}
+              onInput={(event) => setRagFileKb(Number(event.currentTarget.value) || 1)}
+            />
+          </label>
+          <label class="field">
+            <span>Макс. файлов</span>
+            <input
+              type="number"
+              min="1"
+              max="5000"
+              value={ragMaxFiles()}
+              onInput={(event) => setRagMaxFiles(Number(event.currentTarget.value) || 1)}
+            />
+          </label>
+          <label class="field">
+            <span>Макс. фрагментов</span>
+            <input
+              type="number"
+              min="100"
+              max="20000"
+              value={ragMaxChunks()}
+              onInput={(event) => setRagMaxChunks(Number(event.currentTarget.value) || 100)}
+            />
+          </label>
+        </div>
+        <button class="btn" onClick={() => void saveRagConfig()} disabled={ragBusy()}>
+          {ragBusy() ? "Сохраняю…" : "Сохранить RAG"}
+        </button>
       </section>
 
       <section class="card">
