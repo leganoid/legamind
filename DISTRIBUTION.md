@@ -101,8 +101,8 @@ npx tauri build
 
 ## Linux и macOS
 
-- **Linux**: CI собирает `.deb` (Ubuntu 24.04). AppImage отключён: linuxdeploy падает в CI.
-- **macOS**: CI собирает `.app`/`.dmg` **без встроенного сайдкара**. Для работы движка нужен
+- **Linux**: CI собирает `.deb` (Ubuntu 24.04) — успешно, артефакт ~152 МБ. AppImage отключён: linuxdeploy падает в CI.
+- **macOS**: CI собирает `.app`/`.dmg` (~9 МБ) **без встроенного сайдкара** — успешно. Для работы движка нужен
   Python 3 с `openvino`, `openvino-genai`, `openvino-tokenizers`, `fastapi`, `uvicorn`,
   `pydantic`, `pillow`; приложение запускает `python3 -m engine`.
 - PyInstaller-сайдкар на macOS arm64 пока невозможен: `install_name_tool` не может

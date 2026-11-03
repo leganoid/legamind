@@ -1021,3 +1021,9 @@ Vision для Anthropic и локальных OpenVINO не реализован
 
 * Настройки → «Проверить обновления»; ожидается «Обновлений нет» или «Доступно обновление».
 * 15/15 шагов, CI-прогон зелёный.
+
+### Платформенные сборки
+
+* Linux .deb собран в CI (Ubuntu 24.04, ~152 МБ), macOS .app/.dmg ~9 МБ без сайдкара.
+* rfd: gtk3 вместо xdg-portal, иначе конфликт с tauri-plugin-dialog.
+* macOS sidecar блокирован install_name_tool на OpenVINO arm64 dylib; нужен внешний Python.
