@@ -484,6 +484,12 @@ export interface RagConfig {
   max_chunks: number;
 }
 
+export interface TelemetryConfig {
+  enabled: boolean;
+  url: string;
+  install_id: string;
+}
+
 export interface PickedAttachment {
   name: string;
   path: string;

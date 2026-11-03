@@ -84,6 +84,39 @@ export default function SettingsView() {
     }
   };
   const [updateBusy, setUpdateBusy] = createSignal(false);
+  const [telemetryEnabled, setTelemetryEnabled] = createSignal(false);
+  const [telemetryUrl, setTelemetryUrl] = createSignal("");
+  const [telemetryId, setTelemetryId] = createSignal("");
+  const [telemetryBusy, setTelemetryBusy] = createSignal(false);
+
+  const saveTelemetry = async () => {
+    setTelemetryBusy(true);
+    setError(null);
+    try {
+      const saved = await api.telemetrySet(telemetryEnabled(), telemetryUrl());
+      setTelemetryEnabled(saved.enabled);
+      setTelemetryUrl(saved.url);
+      setTelemetryId(saved.install_id);
+      setNotice(saved.enabled ? "Телеметрия включена" : "Телеметрия выключена");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setTelemetryBusy(false);
+    }
+  };
+
+  const testTelemetry = async () => {
+    setTelemetryBusy(true);
+    setError(null);
+    try {
+      await api.telemetryTest();
+      setNotice("Тестовое событие отправлено");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setTelemetryBusy(false);
+    }
+  };
   const [usage, setUsage] = createSignal<ModelUsage[]>([]);
   const [usageBusy, setUsageBusy] = createSignal(false);
   const [prices, setPrices] = createSignal<Record<string, number>>({});
@@ -379,6 +412,10 @@ export default function SettingsView() {
     await loadBackupInfo();
     setEmbeddingModel((await api.ragEmbeddingGet()) ?? "");
     setRerankerModel((await api.ragRerankerGet()) ?? "");
+    const telemetry = await api.telemetryGet();
+    setTelemetryEnabled(telemetry.enabled);
+    setTelemetryUrl(telemetry.url);
+    setTelemetryId(telemetry.install_id);
     const rag = await api.ragConfigGet();
     setRagExtensions(rag.extensions.join(", "));
     setRagExcludes(rag.excludes.join(", "));
@@ -809,6 +846,39 @@ export default function SettingsView() {
           Реранкер — локальная OpenVINO-модель; переупорядочивает найденные фрагменты перед
           ответом.
         </p>
+      </section>
+
+      <section class="card">
+        <h2>Телеметрия (opt-in)</h2>
+        <p class="muted small">
+          По умолчанию выключена. Отправляет только версию, ОС, архитектуру, случайный
+          install_id и время события. Содержимое чатов, пути и ключи не отправляются.
+        </p>
+        <label class="row">
+          <input
+            type="checkbox"
+            checked={telemetryEnabled()}
+            onChange={(event) => setTelemetryEnabled(event.currentTarget.checked)}
+          />
+          <span>Отправлять события на мой endpoint</span>
+        </label>
+        <label class="field">
+          <span>URL endpoint</span>
+          <input
+            value={telemetryUrl()}
+            placeholder="https://example.com/telemetry"
+            onInput={(event) => setTelemetryUrl(event.currentTarget.value)}
+          />
+        </label>
+        <p class="muted small mono">install_id: {telemetryId() || "…"}</p>
+        <div class="row">
+          <button class="btn" onClick={() => void saveTelemetry()} disabled={telemetryBusy()}>
+            {telemetryBusy() ? "Сохраняю…" : "Сохранить"}
+          </button>
+          <button class="btn ghost" onClick={() => void testTelemetry()} disabled={telemetryBusy()}>
+            Отправить тест
+          </button>
+        </div>
       </section>
 
       <section class="card">

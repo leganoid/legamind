@@ -30,6 +30,7 @@ import type {
   MessageToolRow,
   ModelInfo,
   RagConfig,
+  TelemetryConfig,
   ModelUsage,
   ImportResult,
   PickedAttachment,
@@ -150,6 +151,10 @@ export const api = {
   quickAsk: (prompt: string, modelId: string) =>
     invoke<string>("quick_ask", { prompt, modelId }),
   overlayHide: () => invoke<void>("overlay_hide"),
+  telemetryGet: () => invoke<TelemetryConfig>("telemetry_get"),
+  telemetrySet: (enabled: boolean, url: string) =>
+    invoke<TelemetryConfig>("telemetry_set", { enabled, url }),
+  telemetryTest: () => invoke<void>("telemetry_test"),
   usageStats: () => invoke<ModelUsage[]>("usage_stats"),
   importChat: (path: string) => invoke<ImportResult>("import_chat", { path }),
   usagePricesGet: () => invoke<Record<string, number>>("usage_prices_get"),

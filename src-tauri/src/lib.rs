@@ -9,6 +9,7 @@ pub mod memory;
 pub mod models;
 pub mod providers;
 pub mod import;
+pub mod telemetry;
 mod rag;
 pub mod secrets;
 pub mod sidecar;
@@ -363,6 +364,12 @@ pub fn run() {
             }
 
             // Автокопия: проверка раз в час, фактически — не чаще раза в 24 часа.
+            let telemetry_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                telemetry::startup(telemetry_handle).await;
+            });
+
+            // Автокопия: проверка раз в час, фактически — не чаще раза в 24 часа.
             let backup_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -401,6 +408,9 @@ pub fn run() {
             chat::sources_list,
             chat::messages_search,
             overlay_hide,
+            telemetry::telemetry_get,
+            telemetry::telemetry_set,
+            telemetry::telemetry_test,
             chat::quick_ask,
             chat::sessions_set_folder,
             chat::usage_stats,
