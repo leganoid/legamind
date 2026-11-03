@@ -98,3 +98,14 @@ npx tauri build
   публичный — в `tauri.conf.json`. Ключ нельзя терять: без него обновления не подпишутся.
 - Выпуск: поднять версию в `package.json`, `tauri.conf.json`, `Cargo.toml`, поставить тег `vX.Y.Z`.
 - MSI и NSIS нельзя ставить поверх друг друга; для проверки NSIS нужна чистая машина.
+
+## Linux и macOS
+
+- **Linux**: CI собирает `.deb` (Ubuntu 24.04). AppImage отключён: linuxdeploy падает в CI.
+- **macOS**: CI собирает `.app`/`.dmg` **без встроенного сайдкара**. Для работы движка нужен
+  Python 3 с `openvino`, `openvino-genai`, `openvino-tokenizers`, `fastapi`, `uvicorn`,
+  `pydantic`, `pillow`; приложение запускает `python3 -m engine`.
+- PyInstaller-сайдкар на macOS arm64 пока невозможен: `install_name_tool` не может
+  переписать подписанные dylib OpenVINO (`libhwloc`). Это ограничение OpenVINO-колёс,
+  не кода приложения.
+- Windows: MSI/NSIS с полностью встроенным движком.
