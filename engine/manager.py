@@ -334,7 +334,9 @@ class ModelManager:
                 num_inference_steps=max(1, int(steps)),
                 rng_seed=int(seed),
             )
-            array = np.asarray(tensor)
+            array = np.asarray(tensor.data if hasattr(tensor, "data") else tensor)
+            if array.dtype == object:
+                array = np.stack([np.asarray(item) for item in array.flat])
             if array.ndim == 4:
                 array = array[0]
             if array.dtype != np.uint8:
