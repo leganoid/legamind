@@ -788,8 +788,17 @@ export default function SettingsView() {
             onChange={(event) => setRerankerModel(event.currentTarget.value)}
           >
             <option value="">Без реранкера</option>
-            <For each={embeddingModels().filter((model) => model.kind === "local")}>
-              {(model) => <option value={model.id}>{model.label}</option>}
+            <For
+              each={embeddingModels().filter(
+                (model) => model.kind === "local" || model.role === "rerank",
+              )}
+            >
+              {(model) => (
+                <option value={model.id}>
+                  {model.label}
+                  {model.kind === "cloud" ? ` · ${model.provider}` : ""}
+                </option>
+              )}
             </For>
           </select>
           <button class="btn" onClick={() => void saveReranker()} disabled={rerankerBusy()}>

@@ -996,3 +996,10 @@ Vision для Anthropic и локальных OpenVINO не реализован
 * `rag_config`: extensions, excludes, max_file_kb, max_files, max_chunks.
 * Исключения — имена папок/путей; расширения нормализуются; лимиты клампятся.
 * UI: Настройки → Параметры RAG. 99 тестов (фильтрация расширений/исключений).
+
+### Облачный реранкер
+
+* model_id provider/model → POST {base}/rerank с Bearer-ключом.
+* Поддержаны score и relevance_score (Cohere/Jina), top_n = число документов.
+* В настройках реранкера видны локальные модели и облачные с ролью rerank.
+* 100 тестов (парсинг обоих форматов).

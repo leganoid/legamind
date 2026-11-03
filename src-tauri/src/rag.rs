@@ -419,6 +419,11 @@ async fn rerank_candidates(
     query: &str,
     documents: &[String],
 ) -> Result<Vec<(usize, f32)>> {
+    if let Some((provider, model)) = model_id.split_once('/') {
+        if provider != "local" {
+            return rerank_cloud(state, provider, model, query, documents).await;
+        }
+    }
     let base = state.engine_base().await?;
     let short = model_id.strip_prefix("local/").unwrap_or(model_id);
     let resp = state
@@ -437,6 +442,48 @@ async fn rerank_candidates(
         bail!("реранкер: {text}");
     }
     let value: serde_json::Value = resp.json().await?;
+    parse_rerank_results(&value)
+}
+
+async fn rerank_cloud(
+    state: &AppState,
+    provider_id: &str,
+    model: &str,
+    query: &str,
+    documents: &[String],
+) -> Result<Vec<(usize, f32)>> {
+    let provider = state
+        .db
+        .provider_get(provider_id)?
+        .ok_or_else(|| anyhow::anyhow!("Провайдер «{provider_id}» не найден"))?;
+    if provider.kind == "anthropic" {
+        bail!("Anthropic не поддерживает реранкер — нужен Cohere/Jina-совместимый провайдер");
+    }
+    let key = crate::secrets::get_key(state, provider_id)?
+        .ok_or_else(|| anyhow::anyhow!("У провайдера «{provider_id}» нет ключа"))?;
+    let url = format!("{}/rerank", provider.base_url.trim_end_matches('/'));
+    let resp = state
+        .client
+        .post(url)
+        .bearer_auth(key)
+        .json(&serde_json::json!({
+            "model": model,
+            "query": query,
+            "documents": documents,
+            "top_n": documents.len()
+        }))
+        .timeout(std::time::Duration::from_secs(300))
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        bail!("облачный реранкер: {text}");
+    }
+    let value: serde_json::Value = resp.json().await?;
+    parse_rerank_results(&value)
+}
+
+fn parse_rerank_results(value: &serde_json::Value) -> Result<Vec<(usize, f32)>> {
     let results = value
         .get("results")
         .and_then(|v| v.as_array())
@@ -444,10 +491,11 @@ async fn rerank_candidates(
     Ok(results
         .iter()
         .filter_map(|item| {
-            Some((
-                item.get("index")?.as_u64()? as usize,
-                item.get("score")?.as_f64()? as f32,
-            ))
+            let score = item
+                .get("score")
+                .or_else(|| item.get("relevance_score"))
+                .and_then(|v| v.as_f64())?;
+            Some((item.get("index")?.as_u64()? as usize, score as f32))
         })
         .collect())
 }
@@ -780,23 +828,21 @@ pub async fn context_block_hybrid(
 
     // Реранкер (локальная модель): переупорядочивает кандидатов по смысловой близости.
     if let Some(reranker) = reranker_model(&state.db) {
-        if reranker.starts_with("local/") {
-            let candidates: Vec<String> = hits
-                .iter()
-                .take(limit * 3)
-                .map(|((_, _), (content, _))| content.chars().take(HIT_CHARS).collect())
-                .collect();
-            if !candidates.is_empty() {
-                if let Ok(order) = rerank_candidates(state, &reranker, query, &candidates).await {
-                    let mut reordered = Vec::new();
-                    for (index, _) in order {
-                        if let Some(item) = hits.get(index) {
-                            reordered.push(item.clone());
-                        }
+        let candidates: Vec<String> = hits
+            .iter()
+            .take(limit * 3)
+            .map(|((_, _), (content, _))| content.chars().take(HIT_CHARS).collect())
+            .collect();
+        if !candidates.is_empty() {
+            if let Ok(order) = rerank_candidates(state, &reranker, query, &candidates).await {
+                let mut reordered = Vec::new();
+                for (index, _) in order {
+                    if let Some(item) = hits.get(index) {
+                        reordered.push(item.clone());
                     }
-                    if !reordered.is_empty() {
-                        hits = reordered;
-                    }
+                }
+                if !reordered.is_empty() {
+                    hits = reordered;
                 }
             }
         }
@@ -937,6 +983,19 @@ mod tests {
         assert!(!names.contains(&"secret.txt".to_string()));
         assert!(!names.contains(&"gen.md".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parses_rerank_scores() {
+        let value = serde_json::json!({
+            "results": [
+                {"index": 2, "relevance_score": 0.9},
+                {"index": 0, "score": 0.1}
+            ]
+        });
+        let parsed = parse_rerank_results(&value).unwrap();
+        assert_eq!(parsed[0], (2, 0.9));
+        assert_eq!(parsed[1], (0, 0.1));
     }
 
     #[test]
