@@ -81,11 +81,30 @@ pub fn discover_models(state: &AppState) -> Result<usize> {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if !path.is_dir() || !path.join("openvino_model.xml").exists() {
+        let has_vlm = path.join("openvino_language_model.xml").exists();
+        if !path.is_dir()
+            || (!path.join("openvino_model.xml").exists() && !has_vlm)
+        {
             continue;
         }
         let key = path.to_string_lossy().replace('/', "\\").to_lowercase();
         if known.contains(&key) {
+            // У уже добавленной VLM мог не быть флага vlm — обновляем.
+            if has_vlm {
+                let existing = map.iter_mut().find(|(_, value)| {
+                    value
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .map(|value| value.replace('/', "\\").to_lowercase() == key)
+                        .unwrap_or(false)
+                });
+                if let Some((_, value)) = existing {
+                    if value.get("vlm").and_then(|v| v.as_bool()) != Some(true) {
+                        value["vlm"] = serde_json::json!(true);
+                        added += 1;
+                    }
+                }
+            }
             continue;
         }
         let base = path
@@ -116,7 +135,8 @@ pub fn discover_models(state: &AppState) -> Result<usize> {
                 "device": "CPU",
                 "max_tokens": max_tokens,
                 "size_gb": size_gb,
-                "thinks": thinks
+                "thinks": thinks,
+                "vlm": has_vlm
             }),
         );
         known.push(key);
@@ -229,6 +249,7 @@ pub async fn local_model_add(
     }
     let max_tokens = input.max_tokens.unwrap_or(2048).clamp(512, 32768);
     let size_gb = dir_size(&path, 0) as f64 / 1_000_000_000.0;
+    let vlm = path.join("openvino_language_model.xml").exists();
     let id = format!(
         "custom-{}",
         crate::db::new_id().split('-').next().unwrap_or("model")
@@ -242,7 +263,8 @@ pub async fn local_model_add(
             "device": device,
             "max_tokens": max_tokens,
             "size_gb": (size_gb * 100.0).round() / 100.0,
-            "thinks": input.thinks.unwrap_or(false)
+            "thinks": input.thinks.unwrap_or(false),
+            "vlm": vlm
         }),
     );
     write_map(&state, &map).map_err(|e| e.to_string())?;

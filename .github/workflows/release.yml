@@ -1,4 +1,4 @@
-name: Release
+﻿name: Release
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
       - name: Python deps for sidecar
         run: |
           python -m pip install --upgrade pip
-          python -m pip install openvino openvino-genai openvino-tokenizers fastapi uvicorn pydantic pyinstaller
+          python -m pip install openvino openvino-genai openvino-tokenizers fastapi uvicorn pydantic pyinstaller pillow
 
       - name: Build sidecar
         shell: pwsh
@@ -51,8 +51,9 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Legamind ${{ github.ref_name }}"
-          releaseBody: "MSI без код-сигнинга: SmartScreen может показать предупреждение. Проверьте контрольную сумму."
+          releaseBody: "MSI Р±РµР· РєРѕРґ-СЃРёРіРЅРёРЅРіР°: SmartScreen РјРѕР¶РµС‚ РїРѕРєР°Р·Р°С‚СЊ РїСЂРµРґСѓРїСЂРµР¶РґРµРЅРёРµ. РџСЂРѕРІРµСЂСЊС‚Рµ РєРѕРЅС‚СЂРѕР»СЊРЅСѓСЋ СЃСѓРјРјСѓ."
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
           args: ""
+

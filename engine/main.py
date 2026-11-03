@@ -8,12 +8,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json
 import os
 import threading
 import time
 from typing import Any
 
+import numpy as np
+import openvino as ov
+from PIL import Image
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -26,6 +31,7 @@ from .registry import Registry
 class Message(BaseModel):
     role: str
     content: str
+    images: list[str] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):
@@ -176,26 +182,63 @@ def create_app(registry: Registry) -> FastAPI:
             })
             try:
                 started = time.time()
-                manager.ensure_loaded(body.model)
-                yield sse({"status": "ready", "seconds": round(time.time() - started, 2)})
-                yield sse({"status": "generating"})
-                for event in manager.generate_stream(
-                    body.model,
-                    messages,
-                    max_tokens,
-                    body.temperature,
-                    cancel_check=cancelled.is_set,
-                ):
-                    kind = event[0]
-                    if kind == "delta":
-                        payload = {"delta": event[1]}
-                    elif kind == "done":
-                        payload = {"done": True, "tokens": event[1], "seconds": event[2]}
-                    else:  # pragma: no cover
-                        continue
-                    yield sse(payload)
-                    if kind == "done":
-                        break
+                if cfg.get("vlm"):
+                    images = []
+                    for message in messages:
+                        for data_url in message.get("images", []):
+                            try:
+                                raw = data_url.split(",", 1)[-1]
+                                image = Image.open(io.BytesIO(base64.b64decode(raw))).convert("RGB")
+                                images.append(ov.Tensor(np.asarray(image)[None, ...]))
+                            except Exception as exc:  # noqa: BLE001
+                                yield sse({"error": f"Не удалось прочитать изображение: {exc}"})
+                                return
+                    prompt = last_user or (messages[-1]["content"] if messages else "")
+                    system = next(
+                        (m["content"] for m in messages if m["role"] == "system"), ""
+                    )
+                    if system:
+                        prompt = f"{system}\n\n{prompt}"
+                    yield sse({"status": "generating"})
+                    for event in manager.vlm_generate(
+                        body.model,
+                        prompt,
+                        images,
+                        max_tokens,
+                        body.temperature,
+                        cancel_check=cancelled.is_set,
+                    ):
+                        kind = event[0]
+                        if kind == "delta":
+                            payload = {"delta": event[1]}
+                        elif kind == "done":
+                            payload = {"done": True, "tokens": event[1], "seconds": event[2]}
+                        else:  # pragma: no cover
+                            continue
+                        yield sse(payload)
+                        if kind == "done":
+                            break
+                else:
+                    manager.ensure_loaded(body.model)
+                    yield sse({"status": "ready", "seconds": round(time.time() - started, 2)})
+                    yield sse({"status": "generating"})
+                    for event in manager.generate_stream(
+                        body.model,
+                        messages,
+                        max_tokens,
+                        body.temperature,
+                        cancel_check=cancelled.is_set,
+                    ):
+                        kind = event[0]
+                        if kind == "delta":
+                            payload = {"delta": event[1]}
+                        elif kind == "done":
+                            payload = {"done": True, "tokens": event[1], "seconds": event[2]}
+                        else:  # pragma: no cover
+                            continue
+                        yield sse(payload)
+                        if kind == "done":
+                            break
             except ModelError as exc:
                 yield sse({"error": str(exc)})
             finally:

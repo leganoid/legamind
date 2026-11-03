@@ -70,6 +70,7 @@ class ModelManager:
         self._entries: dict[str, ModelEntry] = {}
         self._embedders: dict[str, Any] = {}
         self._rerankers: dict[str, Any] = {}
+        self._vlms: dict[str, Any] = {}
         self._global_lock = threading.Lock()
         self._cache_lock = threading.Lock()
 
@@ -220,6 +221,80 @@ class ModelManager:
         except Exception as exc:  # noqa: BLE001
             raise ModelError(f"Ошибка реранкера: {exc}") from exc
         return [(int(index), float(score)) for index, score in results]
+
+    # ------------------------------------------------------------------ зрение
+    def vlm_generate(
+        self,
+        model_id: str,
+        prompt: str,
+        images: list[Any],
+        max_tokens: int,
+        temperature: float,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> Iterator[tuple[str, Any]]:
+        cfg = self.registry.get(model_id)
+        if cfg is None:
+            raise ModelError(f"Неизвестная модель: {model_id}")
+        if not cfg.get("vlm"):
+            raise ModelError("Модель не поддерживает изображения")
+        device = str(cfg.get("device", "CPU"))
+        with self._cache_lock:
+            pipeline = self._vlms.get(model_id)
+            if pipeline is None:
+                try:
+                    pipeline = ov_genai.VLMPipeline(cfg["path"], device)
+                    self._vlms[model_id] = pipeline
+                except Exception as exc:  # noqa: BLE001
+                    raise ModelError(f"Не удалось загрузить VLM: {exc}") from exc
+        config = ov_genai.GenerationConfig()
+        config.max_new_tokens = max(1, int(max_tokens))
+        if temperature and temperature > 0.01:
+            config.do_sample = True
+            config.temperature = float(temperature)
+            config.top_p = 0.9
+        else:
+            config.do_sample = False
+
+        import queue
+
+        q: "queue.Queue[Any]" = queue.Queue()
+        stop = threading.Event()
+        started = time.time()
+
+        def streamer(chunk: str) -> bool:
+            if stop.is_set():
+                return True
+            if cancel_check is not None and cancel_check():
+                stop.set()
+                return True
+            q.put(chunk)
+            return False
+
+        def worker() -> None:
+            try:
+                if images:
+                    pipeline.generate(prompt, images, config, streamer)
+                else:
+                    pipeline.generate(prompt, config, streamer)
+                q.put(_END)
+            except Exception as exc:  # noqa: BLE001
+                q.put(exc)
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        tokens = 0
+        while True:
+            item = q.get()
+            if item is _END:
+                break
+            if isinstance(item, Exception):
+                raise ModelError(f"Ошибка VLM: {item}") from item
+            if stop.is_set():
+                break
+            tokens += 1
+            yield ("delta", item)
+        thread.join(timeout=1.0)
+        yield ("done", tokens, round(time.time() - started, 2))
 
     # ------------------------------------------------------------------ генерация
     def generate_stream(

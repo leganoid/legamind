@@ -392,12 +392,11 @@ pub async fn chat_send(
         let (provider_id, short) = model_id
             .split_once('/')
             .ok_or_else(|| "Некорректный идентификатор модели".to_string())?;
-        if provider_id == "local" {
-            return Err("Локальные OpenVINO-модели не поддерживают изображения".into());
-        }
-        if let Some(provider) = state.db.provider_get(provider_id).map_err(|e| e.to_string())? {
-            if provider.kind == "anthropic" {
-                return Err("Vision для Anthropic пока не поддержан — используйте OpenAI-совместимую vision-модель".into());
+        if provider_id != "local" {
+            if let Some(provider) = state.db.provider_get(provider_id).map_err(|e| e.to_string())? {
+                if provider.kind == "anthropic" {
+                    return Err("Vision для Anthropic пока не поддержан — используйте OpenAI-совместимую vision-модель".into());
+                }
             }
         }
         if !crate::models::supports_vision(short) {
