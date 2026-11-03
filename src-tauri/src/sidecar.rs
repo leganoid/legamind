@@ -75,6 +75,7 @@ fn python_path(app: &AppHandle) -> PathBuf {
             return PathBuf::from(path);
         }
     }
+    #[cfg(windows)]
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         let candidate = Path::new(&local)
             .join("venvs")
@@ -85,7 +86,14 @@ fn python_path(app: &AppHandle) -> PathBuf {
             return candidate;
         }
     }
-    PathBuf::from("python")
+    #[cfg(windows)]
+    {
+        PathBuf::from("python")
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("python3")
+    }
 }
 
 /// Пишет `engine_config.json`: пути моделей (встроенные + пользовательские) и кэш.
@@ -110,9 +118,14 @@ fn write_config(
     Ok(path)
 }
 
+#[cfg(windows)]
+const ENGINE_BINARY: &str = "legamind-engine.exe";
+#[cfg(not(windows))]
+const ENGINE_BINARY: &str = "legamind-engine";
+
 fn bundled_engine(app: &AppHandle) -> Option<PathBuf> {
     let resource = app.path().resource_dir().ok()?;
-    let candidate = resource.join("engine-bin").join("legamind-engine.exe");
+    let candidate = resource.join("engine-bin").join(ENGINE_BINARY);
     if candidate.is_file() {
         return Some(candidate);
     }

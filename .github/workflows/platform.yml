@@ -1,0 +1,72 @@
+name: Platform builds
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: System deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+      - name: Python deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install openvino openvino-genai openvino-tokenizers fastapi uvicorn pydantic pyinstaller pillow
+      - name: Build sidecar
+        env:
+          LEGAMIND_PYTHON: python
+        run: bash build-sidecar.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Build Linux bundles
+        run: npm run tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: legamind-linux
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install openvino openvino-genai openvino-tokenizers fastapi uvicorn pydantic pyinstaller pillow
+      - name: Build sidecar
+        env:
+          LEGAMIND_PYTHON: python
+        run: bash build-sidecar.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Build macOS bundles
+        run: npm run tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: legamind-macos
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app
