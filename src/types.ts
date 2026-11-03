@@ -490,6 +490,13 @@ export interface TelemetryConfig {
   install_id: string;
 }
 
+export interface CloudConfig {
+  enabled: boolean;
+  url: string;
+  user: string;
+  has_password: boolean;
+}
+
 export interface PickedAttachment {
   name: string;
   path: string;

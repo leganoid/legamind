@@ -30,6 +30,7 @@ import type {
   MessageToolRow,
   ModelInfo,
   RagConfig,
+  CloudConfig,
   TelemetryConfig,
   ModelUsage,
   ImportResult,
@@ -151,6 +152,13 @@ export const api = {
   quickAsk: (prompt: string, modelId: string) =>
     invoke<string>("quick_ask", { prompt, modelId }),
   overlayHide: () => invoke<void>("overlay_hide"),
+  cloudGet: () => invoke<CloudConfig>("cloud_get"),
+  cloudSet: (enabled: boolean, url: string, user: string, password?: string) =>
+    invoke<CloudConfig>("cloud_set", { enabled, url, user, password }),
+  cloudUpload: (passphrase: string) =>
+    invoke<string>("cloud_upload", { passphrase }),
+  cloudRestore: (passphrase: string) =>
+    invoke<string>("cloud_restore", { passphrase }),
   telemetryGet: () => invoke<TelemetryConfig>("telemetry_get"),
   telemetrySet: (enabled: boolean, url: string) =>
     invoke<TelemetryConfig>("telemetry_set", { enabled, url }),

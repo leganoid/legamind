@@ -9,6 +9,7 @@ pub mod memory;
 pub mod models;
 pub mod providers;
 pub mod import;
+pub mod cloud;
 pub mod telemetry;
 mod rag;
 pub mod secrets;
@@ -411,6 +412,10 @@ pub fn run() {
             telemetry::telemetry_get,
             telemetry::telemetry_set,
             telemetry::telemetry_test,
+            cloud::cloud_get,
+            cloud::cloud_set,
+            cloud::cloud_upload,
+            cloud::cloud_restore,
             chat::quick_ask,
             chat::sessions_set_folder,
             chat::usage_stats,

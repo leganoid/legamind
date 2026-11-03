@@ -88,6 +88,58 @@ export default function SettingsView() {
   const [telemetryUrl, setTelemetryUrl] = createSignal("");
   const [telemetryId, setTelemetryId] = createSignal("");
   const [telemetryBusy, setTelemetryBusy] = createSignal(false);
+  const [cloudEnabled, setCloudEnabled] = createSignal(false);
+  const [cloudUrl, setCloudUrl] = createSignal("");
+  const [cloudUser, setCloudUser] = createSignal("");
+  const [cloudPassword, setCloudPassword] = createSignal("");
+  const [cloudPassphrase, setCloudPassphrase] = createSignal("");
+  const [cloudHasPassword, setCloudHasPassword] = createSignal(false);
+  const [cloudBusy, setCloudBusy] = createSignal(false);
+
+  const saveCloud = async () => {
+    setCloudBusy(true);
+    setError(null);
+    try {
+      const saved = await api.cloudSet(
+        cloudEnabled(),
+        cloudUrl(),
+        cloudUser(),
+        cloudPassword(),
+      );
+      setCloudHasPassword(saved.has_password);
+      setCloudPassword("");
+      setNotice("Настройки WebDAV сохранены");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const uploadCloud = async () => {
+    setCloudBusy(true);
+    setError(null);
+    try {
+      setNotice(await api.cloudUpload(cloudPassphrase()));
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const restoreCloud = async () => {
+    if (!window.confirm("Восстановить базу из WebDAV? Текущая база будет заменена.")) return;
+    setCloudBusy(true);
+    setError(null);
+    try {
+      setNotice(await api.cloudRestore(cloudPassphrase()));
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setCloudBusy(false);
+    }
+  };
 
   const saveTelemetry = async () => {
     setTelemetryBusy(true);
@@ -416,6 +468,11 @@ export default function SettingsView() {
     setTelemetryEnabled(telemetry.enabled);
     setTelemetryUrl(telemetry.url);
     setTelemetryId(telemetry.install_id);
+    const cloud = await api.cloudGet();
+    setCloudEnabled(cloud.enabled);
+    setCloudUrl(cloud.url);
+    setCloudUser(cloud.user);
+    setCloudHasPassword(cloud.has_password);
     const rag = await api.ragConfigGet();
     setRagExtensions(rag.extensions.join(", "));
     setRagExcludes(rag.excludes.join(", "));
@@ -877,6 +934,67 @@ export default function SettingsView() {
           </button>
           <button class="btn ghost" onClick={() => void testTelemetry()} disabled={telemetryBusy()}>
             Отправить тест
+          </button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Облачное хранение (opt-in)</h2>
+        <p class="muted small">
+          WebDAV-папка для зашифрованных копий базы. Парольная фраза не сохраняется —
+          без неё копию не восстановить. По умолчанию выключено.
+        </p>
+        <label class="row">
+          <input
+            type="checkbox"
+            checked={cloudEnabled()}
+            onChange={(event) => setCloudEnabled(event.currentTarget.checked)}
+          />
+          <span>Включить облачное хранение</span>
+        </label>
+        <label class="field">
+          <span>URL папки WebDAV</span>
+          <input
+            value={cloudUrl()}
+            placeholder="https://dav.example.com/legamind"
+            onInput={(event) => setCloudUrl(event.currentTarget.value)}
+          />
+        </label>
+        <div class="row">
+          <label class="field">
+            <span>Пользователь</span>
+            <input
+              value={cloudUser()}
+              onInput={(event) => setCloudUser(event.currentTarget.value)}
+            />
+          </label>
+          <label class="field">
+            <span>Пароль WebDAV</span>
+            <input
+              type="password"
+              value={cloudPassword()}
+              placeholder={cloudHasPassword() ? "сохранён" : ""}
+              onInput={(event) => setCloudPassword(event.currentTarget.value)}
+            />
+          </label>
+        </div>
+        <label class="field">
+          <span>Парольная фраза шифрования (не сохраняется)</span>
+          <input
+            type="password"
+            value={cloudPassphrase()}
+            onInput={(event) => setCloudPassphrase(event.currentTarget.value)}
+          />
+        </label>
+        <div class="row">
+          <button class="btn" onClick={() => void saveCloud()} disabled={cloudBusy()}>
+            {cloudBusy() ? "Сохраняю…" : "Сохранить WebDAV"}
+          </button>
+          <button class="btn ghost" onClick={() => void uploadCloud()} disabled={cloudBusy()}>
+            Загрузить копию
+          </button>
+          <button class="btn ghost" onClick={() => void restoreCloud()} disabled={cloudBusy()}>
+            Восстановить
           </button>
         </div>
       </section>

@@ -1034,3 +1034,10 @@ Vision для Anthropic и локальных OpenVINO не реализован
 * hf_convert_model запускает optimum-cli export openvino --weight-format int4.
 * Требуются optimum[openvino], transformers, torch; в сайдкар не входят.
 * 100 тестов; конвертация вживую не проверялась (зависимости не установлены).
+
+### Облачное хранение WebDAV
+
+* opt-in, по умолчанию выключено; URL/логин в settings, пароль в Credential Manager.
+* AES-256-GCM, ключ Argon2id из парольной фразы (не сохраняется), salt/nonce случайные.
+* PUT/GET legamind-backup.enc; перед восстановлением делается safety-копия, затем restart.
+* Тест crypto roundtrip; 101 unit-тест. Сеть WebDAV вживую не проверялась.
