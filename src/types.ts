@@ -484,12 +484,6 @@ export interface RagConfig {
   max_chunks: number;
 }
 
-export interface TelemetryConfig {
-  enabled: boolean;
-  url: string;
-  install_id: string;
-}
-
 export interface CloudConfig {
   enabled: boolean;
   url: string;
