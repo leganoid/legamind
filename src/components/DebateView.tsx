@@ -195,7 +195,7 @@ export default function DebateView(props: Props) {
 
       <Show when={!debateId()}>
         <DebateSetup
-          models={props.models}
+          models={props.models.filter((model) => model.role === "chat")}
           providerLabels={props.providerLabels}
           busy={busy()}
           onStart={start}
