@@ -12,6 +12,7 @@ import SettingsView from "./components/SettingsView";
 import SkillsView from "./components/SkillsView";
 import LearningView from "./components/LearningView";
 import HelpView from "./components/HelpView";
+import SetupWizard from "./components/SetupWizard";
 import Tour from "./components/Tour";
 
 type View =
@@ -61,6 +62,9 @@ export default function App() {
   const [paletteSessions, setPaletteSessions] = createSignal<Session[]>([]);
   const [tourOpen, setTourOpen] = createSignal(
     localStorage.getItem("legamind.tour.v2.done") !== "1",
+  );
+  const [setupOpen, setSetupOpen] = createSignal(
+    localStorage.getItem("legamind.setup.v1.done") !== "1",
   );
 
   const closeTour = () => {
@@ -356,7 +360,17 @@ export default function App() {
           </div>
         </div>
       </Show>
-      <Show when={tourOpen()}>
+      <Show when={setupOpen()}>
+        <SetupWizard
+          models={models()}
+          onClose={() => setSetupOpen(false)}
+          onOpenModels={() => {
+            setSetupOpen(false);
+            setView("models");
+          }}
+        />
+      </Show>
+      <Show when={!setupOpen() && tourOpen()}>
         <Tour onClose={closeTour} />
       </Show>
     </div>
