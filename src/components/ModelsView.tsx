@@ -21,6 +21,21 @@ function roleLabel(role: string) {
   return ROLE_LABELS[role] ?? role;
 }
 
+const RECOMMENDED = [
+  {
+    repo: "OpenVINO/Qwen3-4B-int4-ov",
+    label: "Qwen3 4B int4",
+    size: "2,1 ГБ",
+    note: "быстрая, для CPU/GPU",
+  },
+  {
+    repo: "OpenVINO/Qwen3-8B-int4-ov",
+    label: "Qwen3 8B int4",
+    size: "4,6 ГБ",
+    note: "умнее 4B, нужен CPU/GPU",
+  },
+];
+
 export default function ModelsView(props: Props) {
   const [busy, setBusy] = createSignal<string | null>(null);
   const [showImport, setShowImport] = createSignal(false);
@@ -121,6 +136,31 @@ export default function ModelsView(props: Props) {
 
   const local = () => props.models.filter((m) => m.kind === "local");
   const cloud = () => props.models.filter((m) => m.kind === "cloud");
+
+  const installRecommended = async (item: (typeof RECOMMENDED)[number]) => {
+    setBusy(`download-${item.repo}`);
+    setError(null);
+    setNotice(`Скачиваю ${item.label} (${item.size})…`);
+    try {
+      const path = await api.hfModelDownload(item.repo);
+      await api.localModelAdd({
+        path,
+        label: item.label,
+        device: "CPU",
+        max_tokens: 8192,
+        thinks: true,
+      });
+      await api.engineRestart();
+      await loadCustom();
+      props.onModelsChanged();
+      setNotice(`${item.label} установлена`);
+    } catch (err) {
+      setNotice(null);
+      setError(String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const setDevice = async (model: ModelInfo, device: string) => {
     setBusy(`device-${model.id}`);
@@ -299,6 +339,27 @@ export default function ModelsView(props: Props) {
       </Show>
 
       <h2 class="section-title">Локальные</h2>
+      <p class="muted small">
+        Модели в <span class="mono">C:\Models</span> находятся автоматически. Для первого запуска
+        можно скачать рекомендованную:
+      </p>
+      <div class="card-grid">
+        <For each={RECOMMENDED}>
+          {(item) => (
+            <section class="card model-card">
+              <h3>{item.label}</h3>
+              <p class="muted small">{item.size} · {item.note}</p>
+              <button
+                class="btn small"
+                disabled={busy() !== null}
+                onClick={() => void installRecommended(item)}
+              >
+                {busy() === `download-${item.repo}` ? "Скачиваю…" : "Скачать и добавить"}
+              </button>
+            </section>
+          )}
+        </For>
+      </div>
       <Show when={local().length === 0}>
         <p class="empty-inline">
           Локальных моделей пока нет. Скачайте OpenVINO IR (файлы .xml и .bin) и добавьте папку
