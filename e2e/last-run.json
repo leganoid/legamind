@@ -2,12 +2,12 @@
     {
         "step":  "Подготовка сессии и проекта",
         "ok":  true,
-        "detail":  "session=7d3b40e0-69c6-4da6-be73-5dfa10e927f1"
+        "detail":  "session=10c633a5-43e8-403e-a13d-5abb3519b216"
     },
     {
         "step":  "Запуск приложения",
         "ok":  true,
-        "detail":  "pid=22780"
+        "detail":  "pid=4384"
     },
     {
         "step":  "Композер доступен (тур закрыт)",
@@ -37,17 +37,17 @@
     {
         "step":  "Ответ по RAG",
         "ok":  true,
-        "detail":  "assistant=E2E_RAG_TOKEN_246"
+        "detail":  "assistant=`E2E_RAG_TOKEN_246`"
     },
     {
         "step":  "Учёт входных токенов",
         "ok":  true,
-        "detail":  "input=2568 output=38"
+        "detail":  "input=2545 output=49"
     },
     {
         "step":  "Перезапуск приложения",
         "ok":  true,
-        "detail":  "pid=6752"
+        "detail":  "pid=15352"
     },
     {
         "step":  "История сохранилась",
