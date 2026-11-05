@@ -102,6 +102,11 @@ class ModelManager:
 
         free = free_ram_gb()
         if free < size_gb + 2:
+            # Совет/дебаты: после участников их модели ещё висят в кэше.
+            # Перед загрузкой арбитра выгружаем всё лишнее, иначе 14B не влезает.
+            self._evict_all_except(model_id)
+            free = free_ram_gb()
+        if free < size_gb + 2:
             raise ModelError(
                 f"Недостаточно свободной памяти: нужно {size_gb + 2:.1f} ГБ, доступно {free:.1f} ГБ. "
                 "Закройте лишние приложения или выберите модель поменьше."
@@ -118,6 +123,22 @@ class ModelManager:
         with self._global_lock:
             self._entries[model_id] = entry
         return entry
+
+    def _evict_all_except(self, model_id: str) -> None:
+        """Освобождает RAM перед загрузкой: выгружает все другие модели и кэши."""
+        with self._global_lock:
+            victims = [e for e in self._entries.values() if e.model_id != model_id]
+            for entry in victims:
+                self._entries.pop(entry.model_id, None)
+        for entry in victims:
+            entry.pipeline = None
+        # _load вызывается под _cache_lock; повторно его брать нельзя (deadlock).
+        self._vlms.clear()
+        self._images.clear()
+        import gc
+
+        gc.collect()
+        time.sleep(0.5)
 
     def _evict_for_locked(self, model_id: str, size_gb: float) -> None:
         """Выгружает LRU. Вызывать только под уже взятым self._global_lock.
