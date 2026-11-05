@@ -849,7 +849,7 @@ pub async fn context_block_hybrid(
     }
 
     let mut out = String::from(
-        "Релевантные фрагменты проекта (RAG). Используй их и ссылайся на пути файлов:\n",
+        "Релевантные фрагменты проекта (RAG). Используй их и ссылайся на пути файлов. Если ответа в фрагментах нет — скажи, что в проекте не найдено, и не выдумывай:\n",
     );
     for ((path, line), (content, _)) in hits.into_iter().take(limit) {
         let body: String = content.chars().take(HIT_CHARS).collect();
@@ -868,7 +868,7 @@ pub fn context_block(db: &crate::db::Db, root: &Path, query: &str, limit: usize)
         return None;
     }
     let mut out = String::from(
-        "Релевантные фрагменты проекта (RAG). Используй их и ссылайся на пути файлов:\n",
+        "Релевантные фрагменты проекта (RAG). Используй их и ссылайся на пути файлов. Если ответа в фрагментах нет — скажи, что в проекте не найдено, и не выдумывай:\n",
     );
     for hit in hits {
         let body: String = hit.content.chars().take(HIT_CHARS).collect();

@@ -69,7 +69,7 @@ export default function CouncilView(props: Props) {
       }),
     );
     unlisten.push(
-      await listen<{ model: string; delta: string }>("council:summary_delta", (event) => {
+      await listen<{ model: string; delta: string }>("council:summary:delta", (event) => {
         setSummary((prev) => ({
           model: event.payload.model,
           text: (prev?.text ?? "") + event.payload.delta,
