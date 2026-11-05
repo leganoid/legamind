@@ -276,7 +276,7 @@ class ModelManager:
                 if images:
                     pipeline.generate(prompt, images, config, streamer)
                 else:
-                    pipeline.generate(prompt, config, streamer)
+                    pipeline.generate(prompt, generation_config=config, streamer=streamer)
                 q.put(_END)
             except Exception as exc:  # noqa: BLE001
                 q.put(exc)
