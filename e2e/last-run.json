@@ -2,12 +2,12 @@
     {
         "step":  "Подготовка сессии и проекта",
         "ok":  true,
-        "detail":  "session=8d455477-1704-4278-8dbc-bb8bddb90fd3"
+        "detail":  "session=7d3b40e0-69c6-4da6-be73-5dfa10e927f1"
     },
     {
         "step":  "Запуск приложения",
         "ok":  true,
-        "detail":  "pid=17732"
+        "detail":  "pid=22780"
     },
     {
         "step":  "Композер доступен (тур закрыт)",
@@ -42,12 +42,12 @@
     {
         "step":  "Учёт входных токенов",
         "ok":  true,
-        "detail":  "input=2527 output=49"
+        "detail":  "input=2568 output=38"
     },
     {
         "step":  "Перезапуск приложения",
         "ok":  true,
-        "detail":  "pid=16708"
+        "detail":  "pid=6752"
     },
     {
         "step":  "История сохранилась",
