@@ -7,7 +7,7 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $python = "$env:LOCALAPPDATA\venvs\ai\Scripts\python.exe"
-$appPath = "C:\Program Files\Legamind\legamind.exe"
+$appPath = if ($env:LEGAMIND_EXE) { $env:LEGAMIND_EXE } else { "C:\Program Files\Legamind\legamind.exe" }
 $project = Join-Path $root ".tools\e2e-project"
 $reportPath = Join-Path $root "e2e\last-run.json"
 $steps = New-Object System.Collections.Generic.List[object]
