@@ -491,6 +491,11 @@ export interface CloudConfig {
   has_password: boolean;
 }
 
+export interface CouncilOutcome {
+  answers: CouncilAnswer[];
+  summary: CouncilAnswer | null;
+}
+
 export interface CouncilAnswer {
   model: string;
   text: string;

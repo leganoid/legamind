@@ -31,6 +31,7 @@ import type {
   ModelInfo,
   RagConfig,
   CloudConfig,
+  CouncilOutcome,
   CouncilAnswer,
   ModelUsage,
   ImportResult,
@@ -152,8 +153,11 @@ export const api = {
   quickAsk: (prompt: string, modelId: string) =>
     invoke<string>("quick_ask", { prompt, modelId }),
   overlayHide: () => invoke<void>("overlay_hide"),
-  councilAsk: (prompt: string, models: string[]) =>
-    invoke<CouncilAnswer[]>("council_ask", { prompt, models }),
+  councilAsk: (prompt: string, models: string[], arbiter?: string) =>
+    invoke<CouncilOutcome>("council_ask", { prompt, models, arbiter: arbiter || null }),
+  councilCancel: () => invoke<void>("council_cancel"),
+  localModelSetDevice: (id: string, device: string) =>
+    invoke<void>("local_model_set_device", { id, device }),
   imageGenerate: (input: {
     model: string;
     prompt: string;

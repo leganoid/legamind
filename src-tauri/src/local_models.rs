@@ -298,6 +298,24 @@ pub async fn local_model_remove(state: State<'_, AppState>, id: String) -> Resul
     write_map(&state, &map).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn local_model_set_device(
+    state: State<'_, AppState>,
+    id: String,
+    device: String,
+) -> Result<(), String> {
+    let device = device.trim().to_uppercase();
+    if !["CPU", "GPU", "NPU"].contains(&device.as_str()) {
+        return Err("Устройство должно быть CPU, GPU или NPU".into());
+    }
+    let mut map = read_map(&state).map_err(|e| e.to_string())?;
+    let entry = map
+        .get_mut(&id)
+        .ok_or_else(|| "Модель не найдена".to_string())?;
+    entry["device"] = serde_json::json!(device);
+    write_map(&state, &map).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

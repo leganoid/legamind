@@ -122,6 +122,21 @@ export default function ModelsView(props: Props) {
   const local = () => props.models.filter((m) => m.kind === "local");
   const cloud = () => props.models.filter((m) => m.kind === "cloud");
 
+  const setDevice = async (model: ModelInfo, device: string) => {
+    setBusy(`device-${model.id}`);
+    setError(null);
+    try {
+      await api.localModelSetDevice(model.id.replace(/^local\//, ""), device);
+      await api.engineRestart();
+      props.onModelsChanged();
+      setNotice(`Модель «${model.label}» переключена на ${device}`);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const load = async (model: ModelInfo) => {
     setBusy(model.id);
     setError(null);
@@ -303,6 +318,20 @@ export default function ModelsView(props: Props) {
               <p classList={{ badge: true, on: model.loaded, off: !model.loaded }}>
                 {model.loaded ? "загружена" : "не загружена"}
               </p>
+              <div class="row">
+                <label class="field">
+                  <span>Устройство</span>
+                  <select
+                    value={model.device ?? "CPU"}
+                    disabled={busy() !== null}
+                    onChange={(event) => void setDevice(model, event.currentTarget.value)}
+                  >
+                    <option value="CPU">CPU</option>
+                    <option value="GPU">GPU</option>
+                    <option value="NPU">NPU</option>
+                  </select>
+                </label>
+              </div>
               <div class="row">
                 <button class="btn small" disabled={busy() !== null} onClick={() => load(model)}>
                   {busy() === model.id ? "Загрузка…" : "Загрузить"}

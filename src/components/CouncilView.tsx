@@ -23,6 +23,8 @@ export default function CouncilView(props: Props) {
   const [cards, setCards] = createSignal<Card[]>([]);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [arbiter, setArbiter] = createSignal("");
+  const [summary, setSummary] = createSignal<Card | null>(null);
   let initialized = false;
   let unlisten: UnlistenFn[] = [];
 
@@ -30,6 +32,8 @@ export default function CouncilView(props: Props) {
     if (!initialized && chatModels().length > 0) {
       initialized = true;
       setSelected(chatModels().map((model) => model.id));
+      const smart = chatModels().find((model) => model.id.toLowerCase().includes("14b"));
+      setArbiter(smart?.id ?? chatModels()[0]?.id ?? "");
     }
   });
 
@@ -64,6 +68,31 @@ export default function CouncilView(props: Props) {
         );
       }),
     );
+    unlisten.push(
+      await listen<{ model: string; delta: string }>("council:summary_delta", (event) => {
+        setSummary((prev) => ({
+          model: event.payload.model,
+          text: (prev?.text ?? "") + event.payload.delta,
+          busy: true,
+          error: null,
+          tokens: 0,
+          seconds: 0,
+        }));
+      }),
+    );
+    unlisten.push(
+      await listen<CouncilAnswer>("council:summary_done", (event) => {
+        const answer = event.payload;
+        setSummary({
+          model: answer.model,
+          text: answer.text,
+          busy: false,
+          error: answer.error,
+          tokens: answer.tokens,
+          seconds: answer.seconds,
+        });
+      }),
+    );
   });
   onCleanup(() => unlisten.forEach((fn) => fn()));
 
@@ -78,6 +107,7 @@ export default function CouncilView(props: Props) {
     if (!text || selected().length === 0) return;
     setBusy(true);
     setError(null);
+    setSummary(null);
     setCards(
       selected().map((model) => ({
         model,
@@ -89,9 +119,9 @@ export default function CouncilView(props: Props) {
       })),
     );
     try {
-      const answers = await api.councilAsk(text, selected());
+      const outcome = await api.councilAsk(text, selected(), arbiter() || undefined);
       setCards(
-        answers.map((answer) => ({
+        outcome.answers.map((answer) => ({
           model: answer.model,
           text: answer.text,
           busy: false,
@@ -100,10 +130,28 @@ export default function CouncilView(props: Props) {
           seconds: answer.seconds,
         })),
       );
+      if (outcome.summary) {
+        setSummary({
+          model: outcome.summary.model,
+          text: outcome.summary.text,
+          busy: false,
+          error: outcome.summary.error,
+          tokens: outcome.summary.tokens,
+          seconds: outcome.summary.seconds,
+        });
+      }
     } catch (err) {
       setError(String(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const stop = async () => {
+    try {
+      await api.councilCancel();
+    } catch (err) {
+      setError(String(err));
     }
   };
 
@@ -141,13 +189,32 @@ export default function CouncilView(props: Props) {
           placeholder="Задача для всех моделей…"
           onInput={(event) => setPrompt(event.currentTarget.value)}
         />
-        <button
-          class="btn primary"
-          onClick={() => void ask()}
-          disabled={busy() || !prompt().trim() || selected().length === 0}
-        >
-          {busy() ? "Совет отвечает…" : `Спросить все (${selected().length})`}
-        </button>
+        <div class="row">
+          <label class="field">
+            <span>Арбитр сводки</span>
+            <select
+              value={arbiter()}
+              onChange={(event) => setArbiter(event.currentTarget.value)}
+            >
+              <option value="">Без сводки</option>
+              <For each={chatModels()}>
+                {(model) => <option value={model.id}>{model.label}</option>}
+              </For>
+            </select>
+          </label>
+          <button
+            class="btn primary"
+            onClick={() => void ask()}
+            disabled={busy() || !prompt().trim() || selected().length === 0}
+          >
+            {busy() ? "Совет отвечает…" : `Спросить все (${selected().length})`}
+          </button>
+          <Show when={busy()}>
+            <button class="btn ghost" onClick={() => void stop()}>
+              Стоп
+            </button>
+          </Show>
+        </div>
       </section>
 
       <Show when={error()}>
@@ -176,6 +243,29 @@ export default function CouncilView(props: Props) {
           )}
         </For>
       </div>
+
+      <Show when={summary()}>
+        {(card) => (
+          <section class="card council-summary">
+            <header class="council-card-head">
+              <strong>Сводка арбитра</strong>
+              <span class="muted small">
+                {chatModels().find((model) => model.id === card().model)?.label ?? card().model}
+                {" · "}
+                {card().busy
+                  ? "думает…"
+                  : card().error
+                    ? "ошибка"
+                    : `${card().tokens} ток. · ${card().seconds.toFixed(1)} с`}
+              </span>
+            </header>
+            <Show when={card().error}>
+              <div class="banner error">{card().error}</div>
+            </Show>
+            <div class="council-answer">{card().text || (card().busy ? "…" : "")}</div>
+          </section>
+        )}
+      </Show>
     </div>
   );
 }
