@@ -497,6 +497,14 @@ export interface CloudConfig {
   has_password: boolean;
 }
 
+export interface CouncilAnswer {
+  model: string;
+  text: string;
+  tokens: number;
+  seconds: number;
+  error: string | null;
+}
+
 export interface PickedAttachment {
   name: string;
   path: string;

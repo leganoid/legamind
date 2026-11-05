@@ -31,6 +31,7 @@ import type {
   ModelInfo,
   RagConfig,
   CloudConfig,
+  CouncilAnswer,
   TelemetryConfig,
   ModelUsage,
   ImportResult,
@@ -152,6 +153,8 @@ export const api = {
   quickAsk: (prompt: string, modelId: string) =>
     invoke<string>("quick_ask", { prompt, modelId }),
   overlayHide: () => invoke<void>("overlay_hide"),
+  councilAsk: (prompt: string, models: string[]) =>
+    invoke<CouncilAnswer[]>("council_ask", { prompt, models }),
   imageGenerate: (input: {
     model: string;
     prompt: string;

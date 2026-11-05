@@ -10,6 +10,7 @@ pub mod models;
 pub mod providers;
 pub mod import;
 pub mod images;
+pub mod council;
 pub mod cloud;
 pub mod telemetry;
 mod rag;
@@ -424,6 +425,7 @@ pub fn run() {
             cloud::cloud_upload,
             cloud::cloud_restore,
             images::image_generate,
+            council::council_ask,
             chat::quick_ask,
             chat::sessions_set_folder,
             chat::usage_stats,

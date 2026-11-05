@@ -2133,3 +2133,45 @@ label.inline {
   border: 1px solid var(--border);
   margin-bottom: 10px;
 }
+
+.council-models {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.council-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12.5px;
+}
+
+.council-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.council-card {
+  margin: 0;
+}
+
+.council-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.council-answer {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  max-height: 420px;
+  overflow: auto;
+}
