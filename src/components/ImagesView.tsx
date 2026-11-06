@@ -13,7 +13,8 @@ export default function ImagesView(props: Props) {
   const [prompt, setPrompt] = createSignal("");
   const [negative, setNegative] = createSignal("");
   const [size, setSize] = createSignal("512x512");
-  const [steps, setSteps] = createSignal(4);
+  const [steps, setSteps] = createSignal(20);
+  const [guidance, setGuidance] = createSignal(7.5);
   const [seed, setSeed] = createSignal(0);
   const [image, setImage] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
@@ -38,6 +39,7 @@ export default function ImagesView(props: Props) {
           height,
           steps: steps(),
           seed: seed(),
+          guidance_scale: guidance(),
         }),
       );
     } catch (err) {
@@ -82,9 +84,20 @@ export default function ImagesView(props: Props) {
               <input
                 type="number"
                 min="1"
-                max="30"
+                max="40"
                 value={steps()}
-                onInput={(event) => setSteps(Number(event.currentTarget.value) || 4)}
+                onInput={(event) => setSteps(Number(event.currentTarget.value) || 20)}
+              />
+            </label>
+            <label class="field">
+              <span>Guidance</span>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                step="0.5"
+                value={guidance()}
+                onInput={(event) => setGuidance(Number(event.currentTarget.value) || 7.5)}
               />
             </label>
             <label class="field">
@@ -99,20 +112,27 @@ export default function ImagesView(props: Props) {
           <label class="field">
             <span>Промпт</span>
             <textarea
-              rows={2}
+              class="image-prompt"
+              rows={4}
               value={prompt()}
               onInput={(event) => setPrompt(event.currentTarget.value)}
-              placeholder="a cat sitting on a windowsill, soft light"
+              placeholder="a cat sitting on a windowsill, soft light, detailed fur, 50mm photo"
             />
           </label>
           <label class="field">
             <span>Негативный промпт</span>
-            <input
+            <textarea
+              class="image-negative"
+              rows={2}
               value={negative()}
               onInput={(event) => setNegative(event.currentTarget.value)}
-              placeholder="blurry, low quality"
+              placeholder="blurry, low quality, deformed, extra limbs, text, watermark"
             />
           </label>
+          <p class="hint">
+            Для SD1.5: 512×512 и 20–30 шагов. 768×768 без дообучения часто даёт артефакты и
+            повторяющиеся дома. Guidance 7–8.
+          </p>
           <button class="btn primary" onClick={() => void generate()} disabled={busy() || !prompt().trim()}>
             {busy() ? "Генерирую…" : "Сгенерировать"}
           </button>

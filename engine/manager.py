@@ -328,6 +328,7 @@ class ModelManager:
         height: int,
         steps: int,
         seed: int,
+        guidance_scale: float = 7.5,
     ) -> bytes:
         import io
 
@@ -353,6 +354,7 @@ class ModelManager:
                 width=max(128, int(width)),
                 height=max(128, int(height)),
                 num_inference_steps=max(1, int(steps)),
+                guidance_scale=max(1.0, float(guidance_scale)),
                 rng_seed=int(seed),
             )
             array = np.asarray(tensor.data if hasattr(tensor, "data") else tensor)

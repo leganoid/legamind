@@ -68,8 +68,9 @@ class ImageRequest(BaseModel):
     negative: str = ""
     width: int = 512
     height: int = 512
-    steps: int = 4
+    steps: int = 20
     seed: int = 0
+    guidance_scale: float = 7.5
 
 
 def _rss_mb() -> float | None:
@@ -281,6 +282,7 @@ def create_app(registry: Registry) -> FastAPI:
                 body.height,
                 body.steps,
                 body.seed,
+                body.guidance_scale,
             )
         except ModelError as exc:
             return JSONResponse(status_code=400, content={"error": str(exc)})

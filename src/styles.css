@@ -2252,3 +2252,15 @@ label.inline {
 .tool-policy-row select {
   min-width: 140px;
 }
+
+.image-prompt {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+}
+
+.image-negative {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+}

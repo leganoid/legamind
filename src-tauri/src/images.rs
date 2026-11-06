@@ -14,6 +14,7 @@ pub async fn image_generate(
     height: u32,
     steps: u32,
     seed: i64,
+    guidance_scale: f64,
 ) -> Result<String, String> {
     if prompt.trim().is_empty() {
         return Err("Пустой промпт".into());
@@ -30,7 +31,8 @@ pub async fn image_generate(
             "width": width,
             "height": height,
             "steps": steps,
-            "seed": seed
+            "seed": seed,
+            "guidance_scale": guidance_scale
         }))
         .timeout(std::time::Duration::from_secs(600))
         .send()
