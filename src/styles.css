@@ -2264,3 +2264,27 @@ label.inline {
   min-height: 64px;
   resize: vertical;
 }
+
+/* Навигация и список сессий должны прокручиваться внутри своих колонок. */
+.nav-items {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.sidebar {
+  overflow: hidden;
+}
+
+.session-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.messages {
+  overscroll-behavior: contain;
+}
+
+.page {
+  scrollbar-gutter: stable;
+}
