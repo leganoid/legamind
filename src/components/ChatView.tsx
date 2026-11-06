@@ -160,11 +160,16 @@ export default function ChatView(props: Props) {
         max: "Максимальное",
       };
       return [
-        { value: "auto", label: "Авто" },
+        { value: "off", label: "Без размышлений" },
         ...model.efforts.map((level) => ({ value: level, label: labels[level] ?? level })),
       ];
     }
-    return [];
+    return [
+      { value: "off", label: "Без размышлений" },
+      { value: "low", label: "Низкое" },
+      { value: "high", label: "Среднее" },
+      { value: "max", label: "Максимальное" },
+    ];
   };
 
   const updatePolicy = async (patch: { mode?: string; trust?: string; reasoning?: string }) => {
@@ -960,17 +965,31 @@ export default function ChatView(props: Props) {
               when={activeSession()?.workdir}
               fallback={<span class="muted small">папка не выбрана — инструменты выключены</span>}
             >
-              <span
-                classList={{
-                  badge: true,
-                  danger: (activeSession()?.trust ?? "workspace") === "full",
-                }}
-                title="Инструменты файлов включены для этой сессии"
+              <select
+                class="btn small trust-select"
+                value={activeSession()?.trust ?? "workspace"}
+                title="Уровень доступа модели к файлам"
+                onChange={(event) => changeTrust(event.currentTarget.value)}
               >
-                🔧 {trustLabel()}
-              </span>
+                <option value="read_only">🔒 Только чтение</option>
+                <option value="workspace">🔧 Рабочая папка</option>
+                <option value="full">⚠ Полный доступ</option>
+              </select>
             </Show>
           </div>
+
+          <Show when={reasoningOptions().length > 1}>
+            <select
+              class="btn small"
+              value={activeSession()?.reasoning ?? reasoningOptions()[0].value}
+              title="Глубина рассуждений модели"
+              onChange={(event) => void updatePolicy({ reasoning: event.currentTarget.value })}
+            >
+              <For each={reasoningOptions()}>
+                {(option) => <option value={option.value}>{option.label}</option>}
+              </For>
+            </select>
+          </Show>
 
           <details class="menu">
             <summary class="btn small" title="Режим, обдумывание и доступ к файлам">

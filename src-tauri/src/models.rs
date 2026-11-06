@@ -490,7 +490,9 @@ impl Router<'_> {
             "temperature": params.temperature,
         });
         if let Some(effort) = params.reasoning.as_deref() {
-            if matches!(effort, "low" | "high" | "max") {
+            if effort == "off" {
+                body["reasoning_effort"] = json!("none");
+            } else if matches!(effort, "low" | "high" | "max") {
                 body["reasoning_effort"] = json!(effort);
             }
         }
