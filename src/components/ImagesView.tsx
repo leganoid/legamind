@@ -21,8 +21,25 @@ export default function ImagesView(props: Props) {
   const [translating, setTranslating] = createSignal(false);
   const [translator, setTranslator] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
-  const chatModels = createMemo(() => props.models.filter((model) => model.role === "chat"));
-  const activeTranslator = createMemo(() => translator() || chatModels()[0]?.id || "");
+  const chatModels = createMemo(() =>
+    props.models.filter(
+      (model) =>
+        model.role === "chat" &&
+        !/vl|vision/i.test(model.id) &&
+        !/vl|vision/i.test(model.label),
+    ),
+  );
+  const preferredTranslator = createMemo(() => {
+    const models = chatModels();
+    return (
+      models.find((model) => model.id.includes("deepseek")) ??
+      models.find((model) => model.id.includes("14b")) ??
+      models[0]
+    );
+  });
+  const activeTranslator = createMemo(
+    () => translator() || preferredTranslator()?.id || "",
+  );
 
   const translatePrompt = async () => {
     if (!prompt().trim()) return;
