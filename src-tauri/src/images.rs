@@ -54,29 +54,84 @@ prompt — английский промпт. negative — английский 
         .await
         .map_err(|e| e.to_string())?;
     let answer = if outcome.text.trim().is_empty() { text } else { outcome.text };
-    let start = answer.find('{').ok_or_else(|| "Модель не вернула JSON".to_string())?;
-    let end = answer.rfind('}').ok_or_else(|| "Модель не вернула JSON".to_string())?;
-    if end <= start {
-        return Err("Модель вернула некорректный JSON".into());
-    }
-    let value: serde_json::Value = serde_json::from_str(&answer[start..=end])
-        .map_err(|e| format!("Не удалось разобрать перевод: {e}"))?;
-    let field = |key: &str| {
-        value
-            .get(key)
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string()
+    let value: Option<serde_json::Value> = match (answer.find('{'), answer.rfind('}')) {
+        (Some(start), Some(end)) if end > start => {
+            serde_json::from_str::<serde_json::Value>(&answer[start..=end]).ok()
+        }
+        _ => None,
     };
-    let translated = TranslatedPrompt {
-        prompt: field("prompt"),
-        negative: field("negative"),
-    };
-    if translated.prompt.is_empty() {
-        return Err("Модель вернула пустой перевод".into());
+    if let Some(value) = value {
+        let field = |key: &str| {
+            value
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        };
+        let translated = TranslatedPrompt {
+            prompt: field("prompt"),
+            negative: field("negative"),
+        };
+        if translated.prompt.is_empty() {
+            return Err("Модель вернула пустой перевод".into());
+        }
+        return Ok(translated);
     }
-    Ok(translated)
+
+    // Небольшие локальные модели часто не выдают JSON. Просим простой текст.
+    let fallback_system = "Translate the image description into English. Return ONLY the English translation, without quotes or explanations. If a negative list is present, put it after a new line starting with NEGATIVE:.";
+    let fallback_messages = vec![
+        crate::models::ChatMessage::new("system", fallback_system),
+        crate::models::ChatMessage::new(
+            "user",
+            format!("{prompt}\n\nNegative list: {negative}"),
+        ),
+    ];
+    let fallback_params = crate::models::ChatParams {
+        max_tokens: 300,
+        temperature: 0.1,
+        think: false,
+        reasoning: None,
+    };
+    let mut plain = String::new();
+    let mut ignored = |_: &crate::models::ChatStatus| {};
+    let second = crate::models::Router { state: &state }
+        .stream(
+            &model,
+            &fallback_messages,
+            &fallback_params,
+            &cancel,
+            &mut |chunk| plain.push_str(chunk),
+            &mut ignored,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let raw = if second.text.trim().is_empty() { plain } else { second.text };
+    let mut prompt_en = String::new();
+    let mut negative_en = String::new();
+    for line in raw.lines() {
+        let trimmed = line.trim().trim_matches('"').trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("NEGATIVE:") {
+            negative_en = rest.trim().to_string();
+        } else if prompt_en.is_empty() {
+            prompt_en = trimmed.to_string();
+        }
+    }
+    if prompt_en.is_empty() {
+        return Err("Модель не смогла перевести промпт".into());
+    }
+    Ok(TranslatedPrompt {
+        prompt: prompt_en,
+        negative: if negative_en.is_empty() {
+            "blurry, low quality, deformed, extra limbs, text, watermark".to_string()
+        } else {
+            negative_en
+        },
+    })
 }
 
 #[tauri::command]
