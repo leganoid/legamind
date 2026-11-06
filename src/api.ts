@@ -172,7 +172,7 @@ export const api = {
     height: number;
     steps: number;
     seed: number;
-    guidance_scale: number;
+    guidanceScale: number;
   }) => invoke<string>("image_generate", input),
   cloudGet: () => invoke<CloudConfig>("cloud_get"),
   cloudSet: (enabled: boolean, url: string, user: string, password?: string) =>

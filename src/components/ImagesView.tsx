@@ -39,7 +39,7 @@ export default function ImagesView(props: Props) {
           height,
           steps: steps(),
           seed: seed(),
-          guidance_scale: guidance(),
+          guidanceScale: guidance(),
         }),
       );
     } catch (err) {
@@ -131,7 +131,8 @@ export default function ImagesView(props: Props) {
           </label>
           <p class="hint">
             Для SD1.5: 512×512 и 20–30 шагов. 768×768 без дообучения часто даёт артефакты и
-            повторяющиеся дома. Guidance 7–8.
+            повторяющиеся дома. Guidance 7–8. Промпт и негативный промпт лучше писать
+            по-английски — CLIP у SD1.5 плохо понимает русский.
           </p>
           <button class="btn primary" onClick={() => void generate()} disabled={busy() || !prompt().trim()}>
             {busy() ? "Генерирую…" : "Сгенерировать"}
