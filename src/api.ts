@@ -96,6 +96,8 @@ export const api = {
     invoke<CommandResult>("chat_command", { sessionId, modelId, input }),
 
   skillsList: () => invoke<Skill[]>("skills_list"),
+  skillGenerate: (task: string, model: string) =>
+    invoke<SkillInput>("skill_generate", { task, model }),
   skillSave: (input: SkillInput) => invoke<Skill>("skill_save", { input }),
   skillDelete: (id: string) => invoke<void>("skill_delete", { id }),
   skillSetEnabled: (id: string, enabled: boolean) =>

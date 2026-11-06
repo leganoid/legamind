@@ -465,6 +465,7 @@ pub fn run() {
             export::export_all,
             health::self_check,
             skills::skills_list,
+            skills::skill_generate,
             skills::skill_save,
             skills::skill_delete,
             skills::skill_set_enabled,

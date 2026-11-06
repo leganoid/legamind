@@ -291,7 +291,7 @@ export default function App() {
           <MemoryPanel />
         </Show>
         <Show when={view() === "skills"}>
-          <SkillsView />
+          <SkillsView models={models()} />
         </Show>
         <Show when={view() === "learning"}>
           <LearningView models={models()} providerLabels={providerLabels()} />

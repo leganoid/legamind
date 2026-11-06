@@ -115,6 +115,93 @@ pub struct SkillView {
     pub preview: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct GeneratedSkill {
+    pub name: String,
+    pub description: String,
+    pub role: String,
+    pub guidelines: String,
+    pub output_format: String,
+    pub examples: String,
+    pub constraints: String,
+    pub triggers: String,
+}
+
+/// Генерирует скилл по описанию задачи. Модель работает как prompt-инженер
+/// и возвращает строго JSON, который сразу открывается в конструкторе.
+#[tauri::command]
+pub async fn skill_generate(
+    state: State<'_, AppState>,
+    task: String,
+    model: String,
+) -> Result<GeneratedSkill, String> {
+    let task = task.trim().to_string();
+    if task.is_empty() {
+        return Err("Опишите, для чего нужен скилл".into());
+    }
+    if model.trim().is_empty() {
+        return Err("Выберите модель".into());
+    }
+    let system = "Ты — senior prompt engineer. Создай рабочий скилл для AI-ассистента по описанию задачи пользователя.\n\
+Верни ТОЛЬКО JSON без markdown и пояснений, строго с полями:\n\
+{\"name\":\"...\",\"description\":\"...\",\"role\":\"...\",\"guidelines\":\"...\",\"output_format\":\"...\",\"examples\":\"...\",\"constraints\":\"...\",\"triggers\":\"...\"}\n\
+Требования: guidelines — конкретные шаги, 3–7 пунктов; output_format — проверяемая структура ответа; constraints — чего нельзя делать; triggers — 3–8 ключевых слов через запятую; examples — 1–2 коротких примера или пустая строка. Пиши по-русски, без воды.";
+    let messages = vec![
+        crate::models::ChatMessage::new("system", system),
+        crate::models::ChatMessage::new("user", task),
+    ];
+    let params = crate::models::ChatParams {
+        max_tokens: 1600,
+        temperature: 0.35,
+        think: false,
+        reasoning: None,
+    };
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let mut text = String::new();
+    let mut on_status = |_: &crate::models::ChatStatus| {};
+    let outcome = crate::models::Router { state: &state }
+        .stream(
+            &model,
+            &messages,
+            &params,
+            &cancel,
+            &mut |chunk| text.push_str(chunk),
+            &mut on_status,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let answer = if outcome.text.trim().is_empty() { text } else { outcome.text };
+    let start = answer.find('{').ok_or_else(|| "Модель не вернула JSON".to_string())?;
+    let end = answer.rfind('}').ok_or_else(|| "Модель не вернула JSON".to_string())?;
+    if end <= start {
+        return Err("Модель вернула некорректный JSON".into());
+    }
+    let value: serde_json::Value = serde_json::from_str(&answer[start..=end])
+        .map_err(|e| format!("Не удалось разобрать скилл: {e}"))?;
+    let field = |key: &str| {
+        value
+            .get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let generated = GeneratedSkill {
+        name: field("name"),
+        description: field("description"),
+        role: field("role"),
+        guidelines: field("guidelines"),
+        output_format: field("output_format"),
+        examples: field("examples"),
+        constraints: field("constraints"),
+        triggers: field("triggers"),
+    };
+    if generated.name.is_empty() || generated.guidelines.is_empty() {
+        return Err("Модель вернула пустые название или инструкции".into());
+    }
+    Ok(generated)
+}
+
 #[tauri::command]
 pub async fn skills_list(state: State<'_, AppState>) -> Result<Vec<SkillView>, String> {
     let rows = state.db.skills_list().map_err(|e| e.to_string())?;

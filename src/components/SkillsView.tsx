@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import { api } from "../api";
-import type { Skill, SkillInput } from "../types";
+import type { Skill, SkillInput, ModelInfo } from "../types";
 import { composeSkill, skillFromMarkdown, SKILL_PRESETS } from "../skills";
 import { SKILL_LIBRARY } from "../skill-library";
 
@@ -17,12 +17,17 @@ const EMPTY: SkillInput = {
   enabled: false,
 };
 
-export default function SkillsView() {
+export default function SkillsView(props: { models: ModelInfo[] }) {
   const [skills, setSkills] = createSignal<Skill[]>([]);
   const [editing, setEditing] = createSignal<SkillInput | null>(null);
   const [importOpen, setImportOpen] = createSignal(false);
   const [libraryOpen, setLibraryOpen] = createSignal(false);
   const [libraryQuery, setLibraryQuery] = createSignal("");
+  const [genOpen, setGenOpen] = createSignal(false);
+  const [genTask, setGenTask] = createSignal("");
+  const [genModel, setGenModel] = createSignal("");
+  const [genBusy, setGenBusy] = createSignal(false);
+  const chatModels = () => props.models.filter((model) => model.role === "chat");
   const [importText, setImportText] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -69,6 +74,32 @@ export default function SkillsView() {
     setNotice(`«${item.label}» загружен в конструктор — проверьте и сохраните`);
     setEditing({ ...EMPTY, ...item.patch, enabled: false });
     setLibraryOpen(false);
+  };
+
+  const generate = async () => {
+    if (!genTask().trim()) return;
+    const model = genModel() || chatModels()[0]?.id || "";
+    if (!model) {
+      setError("Нет чат-модели для генерации");
+      return;
+    }
+    setGenBusy(true);
+    setError(null);
+    try {
+      const generated = await api.skillGenerate(genTask().trim(), model);
+      setEditing({
+        ...EMPTY,
+        ...generated,
+        id: null,
+        enabled: false,
+      });
+      setGenOpen(false);
+      setNotice("Скилл сгенерирован — проверьте поля и сохраните");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setGenBusy(false);
+    }
   };
 
   const filteredLibrary = () => {
@@ -149,6 +180,9 @@ export default function SkillsView() {
           </p>
         </div>
         <div class="row">
+          <button class="btn" onClick={() => setGenOpen((v) => !v)}>
+            ✨ Сгенерировать
+          </button>
           <button class="btn" onClick={() => setLibraryOpen((v) => !v)}>
             📚 Библиотека
           </button>
@@ -166,6 +200,39 @@ export default function SkillsView() {
       </Show>
       <Show when={notice()}>
         <div class="banner info">{notice()}</div>
+      </Show>
+
+      <Show when={genOpen()}>
+        <section class="card">
+          <h2>✨ Генерация скилла</h2>
+          <p class="muted small">
+            Опишите задачу — модель напишет роль, шаги, формат, ограничения и триггеры.
+            Результат откроется в конструкторе; перед сохранением проверьте его.
+          </p>
+          <textarea
+            rows={4}
+            value={genTask()}
+            placeholder="Например: скилл для анализа PDF-отчётов и извлечения таблиц в CSV"
+            onInput={(event) => setGenTask(event.currentTarget.value)}
+          />
+          <div class="row">
+            <label class="field">
+              <span>Модель-генератор</span>
+              <select value={genModel()} onChange={(event) => setGenModel(event.currentTarget.value)}>
+                <For each={chatModels()}>
+                  {(model) => <option value={model.id}>{model.label}</option>}
+                </For>
+              </select>
+            </label>
+            <button
+              class="btn primary"
+              disabled={genBusy() || !genTask().trim() || chatModels().length === 0}
+              onClick={() => void generate()}
+            >
+              {genBusy() ? "Генерирую…" : "Сгенерировать скилл"}
+            </button>
+          </div>
+        </section>
       </Show>
 
       <Show when={libraryOpen()}>
