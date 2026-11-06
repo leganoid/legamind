@@ -2,7 +2,7 @@ import { For, Show, createSignal, onMount } from "solid-js";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
-import type { AppInfo, BackupInfo, LogTail, ModelInfo, ModelUsage, SelfCheckItem, WebConfigView, WebTestResult } from "../types";
+import type { AppInfo, BackupInfo, LogTail, ModelInfo, ModelUsage, SelfCheckItem, ToolPermissions, WebConfigView, WebTestResult } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function SettingsView() {
@@ -91,6 +91,18 @@ export default function SettingsView() {
   const [cloudPassphrase, setCloudPassphrase] = createSignal("");
   const [cloudHasPassword, setCloudHasPassword] = createSignal(false);
   const [cloudBusy, setCloudBusy] = createSignal(false);
+  const [toolPerms, setToolPerms] = createSignal<ToolPermissions>({});
+  const [toolPermsBusy, setToolPermsBusy] = createSignal(false);
+
+  const TOOL_ROWS = [
+    { id: "read_file", label: "Чтение файла", read: true },
+    { id: "list_dir", label: "Список файлов", read: true },
+    { id: "write_file", label: "Запись файла", read: false },
+    { id: "apply_patch", label: "Правка файла", read: false },
+    { id: "delete_file", label: "Удаление файла", read: false },
+    { id: "rename_file", label: "Перемещение файла", read: false },
+    { id: "run_command", label: "Команды", read: false },
+  ];
 
   const saveCloud = async () => {
     setCloudBusy(true);
@@ -437,6 +449,7 @@ export default function SettingsView() {
     setCloudUrl(cloud.url);
     setCloudUser(cloud.user);
     setCloudHasPassword(cloud.has_password);
+    setToolPerms(await api.toolPermissionsGet());
     const rag = await api.ragConfigGet();
     setRagExtensions(rag.extensions.join(", "));
     setRagExcludes(rag.excludes.join(", "));
@@ -867,6 +880,53 @@ export default function SettingsView() {
           Реранкер — локальная OpenVINO-модель; переупорядочивает найденные фрагменты перед
           ответом.
         </p>
+      </section>
+
+      <section class="card">
+        <h2>Инструменты</h2>
+        <p class="muted small">
+          Разрешение на каждый инструмент. «Спросить» показывает подтверждение, «Разрешить»
+          выполняет сразу, «Запретить» блокирует. Уровень доступа сессии при этом сохраняется.
+        </p>
+        <div class="tool-policy">
+          <For each={TOOL_ROWS}>
+            {(row) => (
+              <label class="tool-policy-row">
+                <span>{row.label}</span>
+                <select
+                  value={toolPerms()[row.id] ?? (row.read ? "allow" : "ask")}
+                  onChange={(event) =>
+                    setToolPerms((prev) => ({ ...prev, [row.id]: event.currentTarget.value as never }))
+                  }
+                >
+                  <option value="allow">Разрешить</option>
+                  {!row.read && <option value="ask">Спросить</option>}
+                  <option value="deny">Запретить</option>
+                </select>
+              </label>
+            )}
+          </For>
+        </div>
+        <div class="row">
+          <button
+            class="btn primary"
+            disabled={toolPermsBusy()}
+            onClick={async () => {
+              setToolPermsBusy(true);
+              setError(null);
+              try {
+                setToolPerms(await api.toolPermissionsSet(toolPerms()));
+                setNotice("Политика инструментов сохранена");
+              } catch (err) {
+                setError(String(err));
+              } finally {
+                setToolPermsBusy(false);
+              }
+            }}
+          >
+            {toolPermsBusy() ? "Сохраняю…" : "Сохранить политику"}
+          </button>
+        </div>
       </section>
 
       <section class="card">

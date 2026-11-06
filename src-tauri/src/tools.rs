@@ -6,6 +6,7 @@
 //! ```
 //! Запись всегда требует подтверждения пользователя (модалка с diff).
 
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
@@ -622,6 +623,91 @@ const WARN_PATTERNS: &[(&str, &str)] = &[
     ("npm install", "изменение зависимостей"),
 ];
 
+/// Канонические имена инструментов, для которых можно задать политику.
+pub const TOOL_POLICY_NAMES: &[&str] = &[
+    "list_dir",
+    "read_file",
+    "write_file",
+    "apply_patch",
+    "delete_file",
+    "rename_file",
+    "run_command",
+];
+
+fn canonical_tool(tool: &str) -> &'static str {
+    match tool {
+        "list_dir" | "ls" => "list_dir",
+        "read_file" | "read" => "read_file",
+        "write_file" | "write" => "write_file",
+        "apply_patch" | "patch" | "edit_file" => "apply_patch",
+        "delete_file" | "delete" | "remove_file" => "delete_file",
+        "rename_file" | "move_file" | "move" | "rename" => "rename_file",
+        "run_command" | "run" | "shell" | "exec" => "run_command",
+        _ => "other",
+    }
+}
+
+/// Политика по умолчанию: чтение разрешено, изменения и команды — спрашивать.
+pub fn default_tool_permissions() -> serde_json::Value {
+    serde_json::json!({
+        "list_dir": "allow",
+        "read_file": "allow",
+        "write_file": "ask",
+        "apply_patch": "ask",
+        "delete_file": "ask",
+        "rename_file": "ask",
+        "run_command": "ask"
+    })
+}
+
+pub fn tool_permissions(db: &crate::db::Db) -> serde_json::Value {
+    db.setting_get("tool_permissions")
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .unwrap_or_else(default_tool_permissions)
+}
+
+pub fn permission_for(db: &crate::db::Db, tool: &str) -> String {
+    let name = canonical_tool(tool);
+    tool_permissions(db)
+        .get(name)
+        .and_then(|value| value.as_str())
+        .unwrap_or(if name == "list_dir" || name == "read_file" {
+            "allow"
+        } else {
+            "ask"
+        })
+        .to_string()
+}
+
+#[tauri::command]
+pub fn tool_permissions_get(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    Ok(tool_permissions(&state.db))
+}
+
+#[tauri::command]
+pub fn tool_permissions_set(
+    state: tauri::State<'_, AppState>,
+    permissions: HashMap<String, String>,
+) -> Result<serde_json::Value, String> {
+    let mut value = default_tool_permissions();
+    for (key, mode) in permissions {
+        if !TOOL_POLICY_NAMES.contains(&key.as_str()) {
+            continue;
+        }
+        if !matches!(mode.as_str(), "allow" | "ask" | "deny") {
+            return Err(format!("Недопустимый режим для {key}: {mode}"));
+        }
+        value[&key] = serde_json::json!(mode);
+    }
+    state
+        .db
+        .setting_set("tool_permissions", &value.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(value)
+}
+
 /// Проверяет команду: опасные — блокируются, потенциально разрушительные — с предупреждением.
 pub fn guard_command(command: &str, _trust: &str) -> GuardResult {
     let normalized = command.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ");
@@ -960,6 +1046,11 @@ pub async fn execute_call(
     let state = app.state::<AppState>();
     let tool = call.tool.trim().to_lowercase();
     let tool = tool.strip_prefix("tools.").unwrap_or(&tool).to_string();
+    let permission = permission_for(&state.db, &tool);
+    if permission == "deny" {
+        audit("tool_denied", session_id, &tool);
+        bail!("Инструмент «{tool}» запрещён политикой доступа");
+    }
     let path = call.path.clone().unwrap_or_else(|| ".".to_string());
     let _ = app.emit(
         "tool:call",
@@ -982,7 +1073,7 @@ pub async fn execute_call(
             let content = call.content.clone().unwrap_or_default();
             let (preview, target) = prepare_write(workdir, trust, &path, &content)?;
             let approval_session = app.state::<AppState>();
-            if !request_approval(app, &approval_session, request_id, session_id, &preview).await {
+            if permission == "ask" && !request_approval(app, &approval_session, request_id, session_id, &preview).await {
                 audit("write_rejected", session_id, &preview.path);
                 bail!("Пользователь отклонил запись файла");
             }
@@ -1021,7 +1112,7 @@ pub async fn execute_call(
                 prepare_patch(workdir, trust, &path, &old, &new)?
             };
             let approval_session = app.state::<AppState>();
-            if !request_approval(app, &approval_session, request_id, session_id, &preview).await {
+            if permission == "ask" && !request_approval(app, &approval_session, request_id, session_id, &preview).await {
                 audit("patch_rejected", session_id, &preview.path);
                 bail!("Пользователь отклонил правку файла");
             }
@@ -1058,7 +1149,8 @@ pub async fn execute_call(
         "delete_file" | "delete" | "remove_file" => {
             let (preview, target) = prepare_delete(workdir, trust, &path)?;
             let approval_session = app.state::<AppState>();
-            if !request_delete_approval(
+            if permission == "ask"
+                && !request_delete_approval(
                 app,
                 &approval_session,
                 request_id,
@@ -1103,7 +1195,8 @@ pub async fn execute_call(
                 .ok_or_else(|| anyhow::anyhow!("Не указан новый путь (new_path)"))?;
             let (preview, from, to) = prepare_move(workdir, trust, &path, &to_raw)?;
             let approval_session = app.state::<AppState>();
-            if !request_move_approval(app, &approval_session, request_id, session_id, &preview)
+            if permission == "ask"
+                && !request_move_approval(app, &approval_session, request_id, session_id, &preview)
                 .await
             {
                 audit("move_rejected", session_id, &preview.from);
@@ -1154,7 +1247,8 @@ pub async fn execute_call(
                 bail!("{}: {command}", guard.reason.unwrap_or_else(|| "Команда запрещена".into()));
             }
             let approval_session = app.state::<AppState>();
-            if !request_command_approval(
+            if permission == "ask"
+                && !request_command_approval(
                 app,
                 &approval_session,
                 request_id,

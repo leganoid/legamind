@@ -430,6 +430,8 @@ pub fn run() {
             workspace::session_set_policy,
             workspace::open_path,
             tools::tool_approve,
+            tools::tool_permissions_get,
+            tools::tool_permissions_set,
             tools::tool_runs_list,
             tools::tool_undo_last,
             tools::session_permissions_clear,

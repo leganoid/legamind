@@ -484,6 +484,9 @@ export interface RagConfig {
   max_chunks: number;
 }
 
+export type ToolPermission = "allow" | "ask" | "deny";
+export type ToolPermissions = Record<string, ToolPermission>;
+
 export interface CloudConfig {
   enabled: boolean;
   url: string;

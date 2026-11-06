@@ -30,6 +30,7 @@ import type {
   MessageToolRow,
   ModelInfo,
   RagConfig,
+  ToolPermissions,
   CloudConfig,
   CouncilOutcome,
   CouncilAnswer,
@@ -160,6 +161,9 @@ export const api = {
   councilCancel: () => invoke<void>("council_cancel"),
   localModelSetDevice: (id: string, device: string) =>
     invoke<void>("local_model_set_device", { id, device }),
+  toolPermissionsGet: () => invoke<ToolPermissions>("tool_permissions_get"),
+  toolPermissionsSet: (permissions: ToolPermissions) =>
+    invoke<ToolPermissions>("tool_permissions_set", { permissions }),
   imageGenerate: (input: {
     model: string;
     prompt: string;
