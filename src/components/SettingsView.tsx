@@ -4,6 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
 import type { AppInfo, BackupInfo, LogTail, ModelInfo, ModelUsage, SelfCheckItem, ToolPermissions, WebConfigView, WebTestResult } from "../types";
 import ConfirmDialog from "./ConfirmDialog";
+import { FONT_FAMILIES, FONT_SIZES, loadAppearance, resetAppearance, saveAppearance } from "../appearance";
 
 export default function SettingsView() {
   const [info, setInfo] = createSignal<AppInfo | null>(null);
@@ -245,6 +246,11 @@ export default function SettingsView() {
   const [theme, setTheme] = createSignal(
     localStorage.getItem("legamind.theme") === "light" ? "light" : "dark",
   );
+  const appearance = loadAppearance();
+  const [fontFamily, setFontFamily] = createSignal(appearance.family);
+  const [fontSize, setFontSize] = createSignal(appearance.size);
+  const [textColor, setTextColor] = createSignal(appearance.text);
+  const [accentColor, setAccentColor] = createSignal(appearance.accent);
 
   const applyTheme = (value: "dark" | "light") => {
     setTheme(value);
@@ -725,6 +731,83 @@ export default function SettingsView() {
           </button>
         </div>
         <p class="muted small">Тема применяется сразу и запоминается.</p>
+      </section>
+      <section class="card form">
+        <h2>Шрифт и цвета</h2>
+        <p class="muted small">
+          Настройки применяются сразу и сохраняются на этом компьютере. «Сбросить» возвращает
+          системный шрифт и цвета темы.
+        </p>
+        <div class="form-grid">
+          <label>
+            Шрифт
+            <select
+              value={fontFamily()}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setFontFamily(value);
+                saveAppearance({ family: value });
+              }}
+            >
+              <For each={FONT_FAMILIES}>
+                {(font) => <option value={font.value}>{font.label}</option>}
+              </For>
+            </select>
+          </label>
+          <label>
+            Размер текста
+            <select
+              value={String(fontSize())}
+              onChange={(event) => {
+                const value = Number(event.currentTarget.value);
+                setFontSize(value);
+                saveAppearance({ size: value });
+              }}
+            >
+              <For each={FONT_SIZES}>
+                {(size) => <option value={String(size)}>{size} px</option>}
+              </For>
+            </select>
+          </label>
+          <label>
+            Цвет текста
+            <input
+              type="color"
+              value={textColor() || "#e6e8ec"}
+              onInput={(event) => {
+                const value = event.currentTarget.value;
+                setTextColor(value);
+                saveAppearance({ text: value });
+              }}
+            />
+          </label>
+          <label>
+            Акцент
+            <input
+              type="color"
+              value={accentColor() || "#4c8dff"}
+              onInput={(event) => {
+                const value = event.currentTarget.value;
+                setAccentColor(value);
+                saveAppearance({ accent: value });
+              }}
+            />
+          </label>
+        </div>
+        <div class="row">
+          <button
+            class="btn ghost"
+            onClick={() => {
+              resetAppearance();
+              setFontFamily("");
+              setFontSize(14);
+              setTextColor("");
+              setAccentColor("");
+            }}
+          >
+            Сбросить оформление
+          </button>
+        </div>
       </section>
       <section class="card form">
         <h2>Приложение</h2>

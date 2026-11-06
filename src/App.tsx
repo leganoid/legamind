@@ -13,7 +13,7 @@ import SkillsView from "./components/SkillsView";
 import LearningView from "./components/LearningView";
 import HelpView from "./components/HelpView";
 import SetupWizard from "./components/SetupWizard";
-import Tour from "./components/Tour";
+import { applyAppearance } from "./appearance";import Tour from "./components/Tour";
 
 type View =
   | "chat"
@@ -207,6 +207,7 @@ export default function App() {
   onMount(async () => {
     document.documentElement.dataset.theme =
       localStorage.getItem("legamind.theme") === "light" ? "light" : "dark";
+    applyAppearance();
     await refreshProviders();
     const timer = window.setInterval(refreshModels, 15000);
     window.addEventListener("keydown", (event) => {
