@@ -2197,3 +2197,9 @@ label.inline {
 .setup-actions {
   margin-top: 16px;
 }
+
+/* Меню в нижнем композере должно открываться вверх, иначе уходит за край окна. */
+.composer-actions .menu-items {
+  top: auto;
+  bottom: calc(100% + 6px);
+}

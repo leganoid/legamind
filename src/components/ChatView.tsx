@@ -958,16 +958,16 @@ export default function ChatView(props: Props) {
             </button>
             <Show
               when={activeSession()?.workdir}
-              fallback={<span class="muted small">папка не выбрана</span>}
+              fallback={<span class="muted small">папка не выбрана — инструменты выключены</span>}
             >
               <span
                 classList={{
                   badge: true,
                   danger: (activeSession()?.trust ?? "workspace") === "full",
                 }}
-                title="Что модели разрешено делать с файлами"
+                title="Инструменты файлов включены для этой сессии"
               >
-                {trustLabel()}
+                🔧 {trustLabel()}
               </span>
             </Show>
           </div>
