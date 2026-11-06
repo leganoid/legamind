@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import { api } from "../api";
 import type { Skill, SkillInput } from "../types";
 import { composeSkill, skillFromMarkdown, SKILL_PRESETS } from "../skills";
+import { SKILL_LIBRARY } from "../skill-library";
 
 const EMPTY: SkillInput = {
   id: null,
@@ -20,6 +21,8 @@ export default function SkillsView() {
   const [skills, setSkills] = createSignal<Skill[]>([]);
   const [editing, setEditing] = createSignal<SkillInput | null>(null);
   const [importOpen, setImportOpen] = createSignal(false);
+  const [libraryOpen, setLibraryOpen] = createSignal(false);
+  const [libraryQuery, setLibraryQuery] = createSignal("");
   const [importText, setImportText] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -59,6 +62,25 @@ export default function SkillsView() {
     setEditing((prev) => ({ ...(prev ?? EMPTY), ...preset.patch, id: prev?.id ?? null }));
   };
 
+  const applyLibrary = (key: string) => {
+    const item = SKILL_LIBRARY.find((entry) => entry.key === key);
+    if (!item) return;
+    setError(null);
+    setNotice(`«${item.label}» загружен в конструктор — проверьте и сохраните`);
+    setEditing({ ...EMPTY, ...item.patch, enabled: false });
+    setLibraryOpen(false);
+  };
+
+  const filteredLibrary = () => {
+    const query = libraryQuery().trim().toLowerCase();
+    if (!query) return SKILL_LIBRARY;
+    return SKILL_LIBRARY.filter((item) =>
+      `${item.label} ${item.summary} ${item.category} ${item.patch.triggers ?? ""}`
+        .toLowerCase()
+        .includes(query),
+    );
+  };
+
   const preview = createMemo(() => {
     const current = editing();
     return current ? composeSkill(current) : "";
@@ -67,6 +89,18 @@ export default function SkillsView() {
   const save = async () => {
     const current = editing();
     if (!current) return;
+    if (!current.name?.trim()) {
+      setError("Укажите название скилла");
+      return;
+    }
+    if ((current.guidelines ?? "").trim().length < 20) {
+      setError("Инструкции слишком короткие: опишите шаги хотя бы одним предложением");
+      return;
+    }
+    if (preview().length > 4000) {
+      setError("Скилл длиннее 4000 символов — он не поместится в бюджет промпта");
+      return;
+    }
     try {
       await api.skillSave(current);
       setEditing(null);
@@ -115,11 +149,14 @@ export default function SkillsView() {
           </p>
         </div>
         <div class="row">
+          <button class="btn" onClick={() => setLibraryOpen((v) => !v)}>
+            📚 Библиотека
+          </button>
           <button class="btn" onClick={() => setImportOpen((v) => !v)}>
             Импорт SKILL.md
           </button>
           <button class="btn primary" onClick={startNew}>
-            Новый навык
+            🛠 Конструктор
           </button>
         </div>
       </header>
@@ -129,6 +166,42 @@ export default function SkillsView() {
       </Show>
       <Show when={notice()}>
         <div class="banner info">{notice()}</div>
+      </Show>
+
+      <Show when={libraryOpen()}>
+        <section class="card">
+          <div class="row space-between">
+            <h2>Библиотека готовых скиллов</h2>
+            <button class="btn ghost small" onClick={() => setLibraryOpen(false)}>
+              Закрыть
+            </button>
+          </div>
+          <p class="muted small">
+            Проверенные шаблоны: загрузите в конструктор, проверьте под свой проект и сохраните.
+            Скилл начнёт работать после включения.
+          </p>
+          <input
+            placeholder="Поиск: код, SQL, безопасность, документы…"
+            value={libraryQuery()}
+            onInput={(event) => setLibraryQuery(event.currentTarget.value)}
+          />
+          <div class="card-grid">
+            <For each={filteredLibrary()}>
+              {(item) => (
+                <section class="card model-card">
+                  <div class="row space-between">
+                    <strong>{item.label}</strong>
+                    <span class="badge">{item.category}</span>
+                  </div>
+                  <p class="muted small">{item.summary}</p>
+                  <button class="btn small" onClick={() => applyLibrary(item.key)}>
+                    В конструктор
+                  </button>
+                </section>
+              )}
+            </For>
+          </div>
+        </section>
       </Show>
 
       <Show when={importOpen()}>
@@ -253,8 +326,19 @@ export default function SkillsView() {
           </div>
 
           <div class="skill-preview">
-            <div class="muted small">Предпросмотр того, что уйдёт в system-промпт</div>
+            <div class="row space-between">
+              <span class="muted small">Предпросмотр того, что уйдёт в system-промпт</span>
+              <span classList={{ "muted": true, small: true, "text-danger": preview().length > 4000 }}>
+                {preview().length} / 4000 символов
+              </span>
+            </div>
             <pre class="preview-box">{preview() || "Пока пусто — заполните поля"}</pre>
+            <Show when={!editing()!.triggers?.trim()}>
+              <p class="muted small">
+                Триггеры не заданы: скилл будет активен во всех сообщениях. Для узкого навыка
+                добавьте ключевые слова.
+              </p>
+            </Show>
           </div>
 
           <div class="form-actions">

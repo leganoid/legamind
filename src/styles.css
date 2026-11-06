@@ -2209,3 +2209,6 @@ label.inline {
   padding: 4px 6px;
   border-color: var(--border);
 }
+
+.text-danger { color: var(--danger); }
+
