@@ -30,6 +30,7 @@ import type {
   MessageToolRow,
   ModelInfo,
   RagConfig,
+  TranslatedPrompt,
   ToolPermissions,
   CloudConfig,
   CouncilOutcome,
@@ -164,6 +165,8 @@ export const api = {
   toolPermissionsGet: () => invoke<ToolPermissions>("tool_permissions_get"),
   toolPermissionsSet: (permissions: ToolPermissions) =>
     invoke<ToolPermissions>("tool_permissions_set", { permissions }),
+  imageTranslate: (prompt: string, negative: string, model: string) =>
+    invoke<TranslatedPrompt>("image_translate", { prompt, negative, model }),
   imageGenerate: (input: {
     model: string;
     prompt: string;

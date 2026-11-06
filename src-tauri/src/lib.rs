@@ -416,6 +416,7 @@ pub fn run() {
             cloud::cloud_upload,
             cloud::cloud_restore,
             images::image_generate,
+            images::image_translate,
             council::council_ask,
             council::council_cancel,
             chat::quick_ask,

@@ -18,7 +18,30 @@ export default function ImagesView(props: Props) {
   const [seed, setSeed] = createSignal(0);
   const [image, setImage] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [translating, setTranslating] = createSignal(false);
+  const [translator, setTranslator] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
+  const chatModels = createMemo(() => props.models.filter((model) => model.role === "chat"));
+  const activeTranslator = createMemo(() => translator() || chatModels()[0]?.id || "");
+
+  const translatePrompt = async () => {
+    if (!prompt().trim()) return;
+    if (!activeTranslator()) {
+      setError("Нет чат-модели для перевода");
+      return;
+    }
+    setTranslating(true);
+    setError(null);
+    try {
+      const result = await api.imageTranslate(prompt().trim(), negative().trim(), activeTranslator());
+      setPrompt(result.prompt);
+      setNegative(result.negative);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   const generate = async () => {
     if (!prompt().trim()) return;
@@ -134,6 +157,26 @@ export default function ImagesView(props: Props) {
             повторяющиеся дома. Guidance 7–8. Промпт и негативный промпт лучше писать
             по-английски — CLIP у SD1.5 плохо понимает русский.
           </p>
+          <div class="row">
+            <label class="field">
+              <span>Модель-переводчик</span>
+              <select
+                value={activeTranslator()}
+                onChange={(event) => setTranslator(event.currentTarget.value)}
+              >
+                <For each={chatModels()}>
+                  {(chat) => <option value={chat.id}>{chat.label}</option>}
+                </For>
+              </select>
+            </label>
+            <button
+              class="btn ghost"
+              disabled={translating() || !prompt().trim() || !activeTranslator()}
+              onClick={() => void translatePrompt()}
+            >
+              {translating() ? "Перевожу…" : "🌐 Перевести на английский"}
+            </button>
+          </div>
           <button class="btn primary" onClick={() => void generate()} disabled={busy() || !prompt().trim()}>
             {busy() ? "Генерирую…" : "Сгенерировать"}
           </button>

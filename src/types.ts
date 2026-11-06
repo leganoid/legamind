@@ -494,6 +494,11 @@ export interface CloudConfig {
   has_password: boolean;
 }
 
+export interface TranslatedPrompt {
+  prompt: string;
+  negative: string;
+}
+
 export interface CouncilOutcome {
   answers: CouncilAnswer[];
   summary: CouncilAnswer | null;
