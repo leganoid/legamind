@@ -674,20 +674,20 @@ export default function ChatView(props: Props) {
       setGoal({ ...state, status: "paused" });
       return;
     }
-    if (state.round >= state.max) {
-      setGoal({
-        ...state,
-        status: "done",
-        report: state.report || "Достигнут лимит раундов.",
-      });
-      return;
-    }
     try {
       const list = await api.messagesList(id);
       const lastAssistant = [...list].reverse().find((message) => message.role === "assistant");
       const last = lastAssistant?.content ?? "";
       if (last.includes("GOAL_DONE")) {
         setGoal({ ...state, status: "done", report: last });
+        return;
+      }
+      if (state.round >= state.max) {
+        setGoal({
+          ...state,
+          status: "done",
+          report: last || state.report || "Достигнут лимит раундов.",
+        });
         return;
       }
       const next = {
