@@ -1,4 +1,4 @@
-﻿# E2E-прогон Legamind (Windows UI Automation)
+# E2E-прогон Legamind (Windows UI Automation)
 #
 # Запуск:  powershell -ExecutionPolicy Bypass -File e2e\run.ps1
 # Требует установленное приложение C:\Program Files\Legamind\legamind.exe
@@ -220,7 +220,11 @@ if ($folderBtn) {
         $save = Find-Element (Get-Window) ([System.Windows.Automation.ControlType]::Button) "Сохранить"
         if ($save) { Invoke-Element $save | Out-Null }
         Start-Sleep -Seconds 2
-        $folderFacts = Get-Facts
+        for ($i = 0; $i -lt 10; $i++) {
+            $folderFacts = Get-Facts
+            if ($folderFacts.folder -eq "E2E Folder") { break }
+            Start-Sleep -Milliseconds 500
+        }
         $folderOk = $folderFacts.folder -eq "E2E Folder"
     }
 }
