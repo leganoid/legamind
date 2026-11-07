@@ -2320,3 +2320,31 @@ label.inline {
   background: #b8c0cc;
   background-clip: content-box;
 }
+
+.goal-panel {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.goal-report {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12.5px;
+}
+
+.goal-objective {
+  margin: 0;
+}
+
+.goal-status {
+  font-weight: 600;
+}

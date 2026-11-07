@@ -48,6 +48,19 @@ export default function ChatView(props: Props) {
   const [statusText, setStatusText] = createSignal<string | null>(null);
   const [commandBusy, setCommandBusy] = createSignal(false);
   const [webEnabled, setWebEnabled] = createSignal(true);
+  const [goalOpen, setGoalOpen] = createSignal(false);
+  const [goalObjective, setGoalObjective] = createSignal("");
+  const [goalCriteria, setGoalCriteria] = createSignal("");
+  const [goalMaxRounds, setGoalMaxRounds] = createSignal(3);
+  const [goalPaused, setGoalPaused] = createSignal(false);
+  const [goal, setGoal] = createSignal<{
+    objective: string;
+    criteria: string;
+    round: number;
+    max: number;
+    status: "running" | "paused" | "done" | "error";
+    report: string;
+  } | null>(null);
   const [sourcesByMessage, setSourcesByMessage] = createSignal<Record<string, SourceRow[]>>({});
   const [approval, setApproval] = createSignal<ToolApproval | null>(null);
   const [toolRuns, setToolRuns] = createSignal<ToolRunRow[] | null>(null);
@@ -621,6 +634,97 @@ export default function ChatView(props: Props) {
     }
   };
 
+  const goalPrompt = (state: {
+    objective: string;
+    criteria: string;
+    round: number;
+    max: number;
+  }) =>
+    `[РЕЖИМ ЦЕЛИ]\nЦель: ${state.objective}\nКритерии готовности: ${state.criteria || "определи сам и зафиксируй"}\nРаунд ${state.round} из ${state.max}.\n` +
+    `Выполни следующий конкретный шаг по цели. Если доступны инструменты и рабочая папка — используй их, не выдумывай содержимое файлов.\n` +
+    `Если все критерии уже выполнены, начни ответ со слова GOAL_DONE и дай короткий отчёт: что сделано, чем подтверждено, что осталось.\n` +
+    `Иначе закончи ответ строкой NEXT: <что делать в следующем раунде>.`;
+
+  const startGoal = () => {
+    const objective = goalObjective().trim();
+    if (!objective) {
+      setError("Опишите цель");
+      return;
+    }
+    const max = Math.min(10, Math.max(1, goalMaxRounds()));
+    const state = {
+      objective,
+      criteria: goalCriteria().trim(),
+      round: 1,
+      max,
+      status: "running" as const,
+      report: "",
+    };
+    setGoal(state);
+    setGoalPaused(false);
+    setGoalOpen(false);
+    void send(goalPrompt(state));
+  };
+
+  const advanceGoal = async (force = false) => {
+    const state = goal();
+    const id = activeId();
+    if (!state || !id || state.status === "done" || state.status === "error") return;
+    if (goalPaused() && !force) {
+      setGoal({ ...state, status: "paused" });
+      return;
+    }
+    if (state.round >= state.max) {
+      setGoal({
+        ...state,
+        status: "done",
+        report: state.report || "Достигнут лимит раундов.",
+      });
+      return;
+    }
+    try {
+      const list = await api.messagesList(id);
+      const lastAssistant = [...list].reverse().find((message) => message.role === "assistant");
+      const last = lastAssistant?.content ?? "";
+      if (last.includes("GOAL_DONE")) {
+        setGoal({ ...state, status: "done", report: last });
+        return;
+      }
+      const next = {
+        ...state,
+        round: state.round + 1,
+        status: "running" as const,
+        report: last.slice(-1200),
+      };
+      setGoal(next);
+      setGoalPaused(false);
+      await send(goalPrompt(next));
+    } catch (err) {
+      setError(String(err));
+      setGoal({ ...state, status: "error" });
+    }
+  };
+
+  const pauseGoal = () => {
+    setGoalPaused(true);
+    const state = goal();
+    if (state) setGoal({ ...state, status: "paused" });
+  };
+
+  const resumeGoal = () => {
+    const state = goal();
+    if (!state) return;
+    setGoalPaused(false);
+    setGoal({ ...state, status: "running" });
+    void advanceGoal(true);
+  };
+
+  const stopGoal = () => {
+    setGoal(null);
+    setGoalPaused(false);
+    setGoalOpen(false);
+  };
+
   const attachFile = async () => {
     if (attachments().length >= 2) {
       setNotice("Можно приложить не больше двух файлов");
@@ -775,6 +879,7 @@ export default function ChatView(props: Props) {
         await loadSources(event.payload.session_id);
         await refreshSessions();
         props.onModelsChanged();
+        if (!event.payload.stopped) void advanceGoal();
       }),
     );
     unlisteners.push(
@@ -785,6 +890,10 @@ export default function ChatView(props: Props) {
         setRequestId(null);
         setStreamText("");
         setStatusText(null);
+        const state = goal();
+        if (state && state.status === "running") {
+          setGoal({ ...state, status: "error" });
+        }
       }),
     );
 
@@ -1007,6 +1116,14 @@ export default function ChatView(props: Props) {
             </Show>
           </div>
 
+          <button
+            class="btn small"
+            title="Автономное выполнение цели по раундам"
+            onClick={() => setGoalOpen((value) => !value)}
+          >
+            🎯 {goal() ? `Цель ${goal()!.round}/${goal()!.max}` : "Цель"}
+          </button>
+
           <Show when={reasoningOptions().length > 1}>
             <select
               class="btn small"
@@ -1202,6 +1319,107 @@ export default function ChatView(props: Props) {
         </Show>
         <Show when={commandBusy()}>
           <div class="banner info">Выполняю команду…</div>
+        </Show>
+
+        <Show when={goalOpen() || goal()}>
+          <section class="card goal-panel">
+            <header class="row space-between">
+              <strong>🎯 Цель</strong>
+              <button class="icon-btn" onClick={() => setGoalOpen(false)}>
+                ✕
+              </button>
+            </header>
+            <Show
+              when={goal()}
+              fallback={
+                <div class="stack">
+                  <label class="field">
+                    <span>Что нужно сделать</span>
+                    <textarea
+                      rows={3}
+                      value={goalObjective()}
+                      onInput={(event) => setGoalObjective(event.currentTarget.value)}
+                      placeholder="Например: довести проект до сборки и зелёных тестов"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>Критерии готовности</span>
+                    <textarea
+                      rows={2}
+                      value={goalCriteria()}
+                      onInput={(event) => setGoalCriteria(event.currentTarget.value)}
+                      placeholder="cargo test проходит, приложение запускается, отчёт готов"
+                    />
+                  </label>
+                  <div class="row">
+                    <label class="field">
+                      <span>Максимум раундов</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={goalMaxRounds()}
+                        onInput={(event) =>
+                          setGoalMaxRounds(Number(event.currentTarget.value) || 3)
+                        }
+                      />
+                    </label>
+                    <button class="btn primary" onClick={startGoal}>
+                      Запустить цель
+                    </button>
+                  </div>
+                </div>
+              }
+            >
+              <div class="stack">
+                <div class="row space-between">
+                  <span class="goal-status">
+                    {goal()!.status === "running" && "▶ Выполняется"}
+                    {goal()!.status === "paused" && "⏸ Пауза"}
+                    {goal()!.status === "done" && "✅ Готово"}
+                    {goal()!.status === "error" && "⚠ Ошибка"}
+                    {" · раунд "}
+                    {goal()!.round}/{goal()!.max}
+                  </span>
+                  <span class="muted small">
+                    {goal()!.status === "running"
+                      ? "Следующий раунд запустится автоматически"
+                      : ""}
+                  </span>
+                </div>
+                <p class="muted small goal-objective">{goal()!.objective}</p>
+                <Show when={goal()!.report}>
+                  <pre class="goal-report">{goal()!.report}</pre>
+                </Show>
+                <div class="row">
+                  <Show when={goal()!.status === "running"}>
+                    <button class="btn ghost" onClick={pauseGoal}>
+                      ⏸ Пауза
+                    </button>
+                  </Show>
+                  <Show when={goal()!.status === "paused"}>
+                    <button class="btn primary" onClick={resumeGoal}>
+                      ▶ Продолжить
+                    </button>
+                  </Show>
+                  <Show when={goal()!.status === "done" || goal()!.status === "error"}>
+                    <button
+                      class="btn"
+                      onClick={() => {
+                        setGoal(null);
+                        setGoalOpen(true);
+                      }}
+                    >
+                      Новая цель
+                    </button>
+                  </Show>
+                  <button class="btn danger" onClick={stopGoal}>
+                    Остановить
+                  </button>
+                </div>
+              </div>
+            </Show>
+          </section>
         </Show>
 
         <div
