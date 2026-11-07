@@ -69,6 +69,7 @@ export default function ChatView(props: Props) {
   let stickToBottom = true;
   let lastScrollSession: string | null = null;
   let pendingRestore: { id: string; top: number | null } | null = null;
+  let restoringScroll = false;
   const scrollKey = (id: string) => `legamind.scroll.${id}`;
 
   const busy = () => requestId() !== null;
@@ -894,16 +895,25 @@ export default function ChatView(props: Props) {
     const id = activeId();
     if (!scroller || !id) return;
     if (pendingRestore && pendingRestore.id === id) {
+      const loadedSession = messages()[0]?.session_id;
+      const ready = messages().length === 0 || loadedSession === id;
+      if (!ready) return;
       const top = pendingRestore.top;
       pendingRestore = null;
+      restoringScroll = true;
       requestAnimationFrame(() => {
-        if (!scroller) return;
+        if (!scroller) {
+          restoringScroll = false;
+          return;
+        }
         scroller.scrollTop = top === null ? scroller.scrollHeight : top;
         stickToBottom =
           scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60;
+        restoringScroll = false;
       });
       return;
     }
+    if (restoringScroll) return;
     if (stickToBottom) scroller.scrollTop = scroller.scrollHeight;
   });
 
