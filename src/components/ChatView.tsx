@@ -67,9 +67,8 @@ export default function ChatView(props: Props) {
   const [editText, setEditText] = createSignal("");
   let scroller: HTMLDivElement | undefined;
   let stickToBottom = true;
-  let lastScrollSession: string | null = null;
-  let pendingRestore: { id: string; top: number | null } | null = null;
   let restoringScroll = false;
+  let restoreTimer: number | undefined;
   const scrollKey = (id: string) => `legamind.scroll.${id}`;
 
   const busy = () => requestId() !== null;
@@ -384,13 +383,21 @@ export default function ChatView(props: Props) {
       localStorage.setItem(scrollKey(previous), String(scroller.scrollTop));
     }
     if (previous !== id) {
-      const saved = localStorage.getItem(scrollKey(id));
-      pendingRestore = {
-        id,
-        top: saved === null ? null : Math.max(0, Number(saved) || 0),
-      };
-      lastScrollSession = id;
       restoringScroll = true;
+      const raw = localStorage.getItem(scrollKey(id));
+      const saved = raw === null ? null : Math.max(0, Number(raw) || 0);
+      if (restoreTimer) window.clearTimeout(restoreTimer);
+      const apply = () => {
+        if (!scroller || activeId() !== id) return;
+        scroller.scrollTop = saved === null ? scroller.scrollHeight : saved;
+        stickToBottom =
+          scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60;
+        restoringScroll = false;
+      };
+      restoreTimer = window.setTimeout(apply, 350);
+      window.setTimeout(() => {
+        if (restoringScroll) apply();
+      }, 1000);
     }
     setActiveId(id);
     setError(null);
@@ -885,47 +892,11 @@ export default function ChatView(props: Props) {
   });
 
   // Запоминаем позицию при переключении сессии и восстанавливаем её после загрузки.
-  createEffect(() => {
-    const id = activeId();
-    if (!id) return;
-    if (lastScrollSession && lastScrollSession !== id && scroller) {
-      localStorage.setItem(scrollKey(lastScrollSession), String(scroller.scrollTop));
-    }
-    if (lastScrollSession !== id) {
-      const saved = localStorage.getItem(scrollKey(id));
-      pendingRestore = {
-        id,
-        top: saved === null ? null : Math.max(0, Number(saved) || 0),
-      };
-      lastScrollSession = id;
-    }
-  });
-
   // Автопрокрутка вниз только если пользователь уже внизу.
   createEffect(() => {
     messages();
     streamText();
-    const id = activeId();
-    if (!scroller || !id) return;
-    if (pendingRestore && pendingRestore.id === id) {
-      const loadedSession = messages()[0]?.session_id;
-      const ready = messages().length === 0 || loadedSession === id;
-      if (!ready) return;
-      const top = pendingRestore.top;
-      pendingRestore = null;
-      restoringScroll = true;
-      requestAnimationFrame(() => {
-        if (!scroller) {
-          restoringScroll = false;
-          return;
-        }
-        scroller.scrollTop = top === null ? scroller.scrollHeight : top;
-        stickToBottom =
-          scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60;
-        restoringScroll = false;
-      });
-      return;
-    }
+    if (!scroller || !activeId()) return;
     if (restoringScroll) return;
     if (stickToBottom) scroller.scrollTop = scroller.scrollHeight;
   });
