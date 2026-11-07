@@ -2288,3 +2288,35 @@ label.inline {
 .page {
   scrollbar-gutter: stable;
 }
+
+/* Тонкие тёмные полосы прокрутки */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a414d;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-dim);
+  background-clip: content-box;
+}
+
+:root[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #b8c0cc;
+  background-clip: content-box;
+}

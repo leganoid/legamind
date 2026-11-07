@@ -66,6 +66,10 @@ export default function ChatView(props: Props) {
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [editText, setEditText] = createSignal("");
   let scroller: HTMLDivElement | undefined;
+  let stickToBottom = true;
+  let lastScrollSession: string | null = null;
+  let pendingRestore: { id: string; top: number | null } | null = null;
+  const scrollKey = (id: string) => `legamind.scroll.${id}`;
 
   const busy = () => requestId() !== null;
   const activeSession = createMemo(() => sessions().find((s) => s.id === activeId()) ?? null);
@@ -557,6 +561,7 @@ export default function ChatView(props: Props) {
       return;
     }    setError(null);
     setNotice(null);
+    stickToBottom = true;
     let session = activeSession();
     if (!session) {
       const chosen = modelId() || defaultModel();
@@ -865,11 +870,41 @@ export default function ChatView(props: Props) {
       .catch(() => {});
   });
 
-  // Автопрокрутка вниз при новых сообщениях и дельтах.
+  // Запоминаем позицию при переключении сессии и восстанавливаем её после загрузки.
+  createEffect(() => {
+    const id = activeId();
+    if (!id) return;
+    if (lastScrollSession && lastScrollSession !== id && scroller) {
+      localStorage.setItem(scrollKey(lastScrollSession), String(scroller.scrollTop));
+    }
+    if (lastScrollSession !== id) {
+      const saved = localStorage.getItem(scrollKey(id));
+      pendingRestore = {
+        id,
+        top: saved === null ? null : Math.max(0, Number(saved) || 0),
+      };
+      lastScrollSession = id;
+    }
+  });
+
+  // Автопрокрутка вниз только если пользователь уже внизу.
   createEffect(() => {
     messages();
     streamText();
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    const id = activeId();
+    if (!scroller || !id) return;
+    if (pendingRestore && pendingRestore.id === id) {
+      const top = pendingRestore.top;
+      pendingRestore = null;
+      requestAnimationFrame(() => {
+        if (!scroller) return;
+        scroller.scrollTop = top === null ? scroller.scrollHeight : top;
+        stickToBottom =
+          scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60;
+      });
+      return;
+    }
+    if (stickToBottom) scroller.scrollTop = scroller.scrollHeight;
   });
 
   // Модели приходят асинхронно: выбираем модель, когда список появился.
@@ -1175,7 +1210,17 @@ export default function ChatView(props: Props) {
           <div class="banner info">Выполняю команду…</div>
         </Show>
 
-        <div class="messages" ref={scroller}>
+        <div
+          class="messages"
+          ref={scroller}
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            const id = activeId();
+            if (id) localStorage.setItem(scrollKey(id), String(element.scrollTop));
+            stickToBottom =
+              element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+          }}
+        >
           <Show when={messages().length === 0 && !busy()}>
             <div class="empty">
               <h2>Legamind</h2>
