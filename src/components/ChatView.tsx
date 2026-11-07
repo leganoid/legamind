@@ -379,6 +379,19 @@ export default function ChatView(props: Props) {
   };
 
   const openSession = async (id: string, messageId?: string) => {
+    const previous = activeId();
+    if (previous && previous !== id && scroller && !restoringScroll) {
+      localStorage.setItem(scrollKey(previous), String(scroller.scrollTop));
+    }
+    if (previous !== id) {
+      const saved = localStorage.getItem(scrollKey(id));
+      pendingRestore = {
+        id,
+        top: saved === null ? null : Math.max(0, Number(saved) || 0),
+      };
+      lastScrollSession = id;
+      restoringScroll = true;
+    }
     setActiveId(id);
     setError(null);
     setToolsLive([]);
@@ -1226,9 +1239,13 @@ export default function ChatView(props: Props) {
           onScroll={(event) => {
             const element = event.currentTarget;
             const id = activeId();
-            if (id) localStorage.setItem(scrollKey(id), String(element.scrollTop));
-            stickToBottom =
-              element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+            if (id && !restoringScroll) {
+              localStorage.setItem(scrollKey(id), String(element.scrollTop));
+            }
+            if (!restoringScroll) {
+              stickToBottom =
+                element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+            }
           }}
         >
           <Show when={messages().length === 0 && !busy()}>
